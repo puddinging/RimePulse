@@ -178,7 +178,7 @@ enum TestRunner {
         print("Results: \(passed) passed, \(failed) failed")
         if failed > 0 {
             print("❌ SOME TESTS FAILED")
-            _exit(1)
+            exit(1)
         } else {
             print("✅ ALL TESTS PASSED")
         }
