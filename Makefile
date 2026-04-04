@@ -15,7 +15,12 @@ release:
 	swift build -c release
 
 test: build
-	swift Tests/run_tests.swift
+	swiftc -DLINKED_SOURCES -parse-as-library \
+		Sources/RimePulse/Models/TypingStats.swift \
+		Sources/RimePulse/Formatting.swift \
+		Tests/run_tests.swift \
+		-o $(BUILD_DIR)/test_runner
+	$(BUILD_DIR)/test_runner
 
 clean:
 	swift package clean
