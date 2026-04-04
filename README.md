@@ -15,14 +15,62 @@ macOS 菜单栏打字统计工具，实时展示 [Rime 输入法](https://rime.i
 
 ## 数据来源
 
-RimePulse 读取 Rime 输入法 Lua 插件生成的统计文件：
+RimePulse 读取 Rime 输入法 Lua 插件 `tstats.lua` 生成的统计文件：
 
 | 文件 | 说明 |
 |------|------|
-| `typing_stats_today.json` | 今日实时统计 |
-| `typing_stats.jsonl` | 历史记录（每天一行 JSON） |
+| `typing_stats_today.json` | 今日实时统计（每次上屏后覆盖更新） |
+| `typing_stats.jsonl` | 历史记录（每天一行 JSON，跨日自动归档） |
 
-> 需要在 Rime 中配置对应的 Lua 统计插件来生成这些文件。
+### 安装 Lua 统计插件
+
+#### 1. 复制脚本
+
+将仓库中的 `rime/tstats.lua` 复制到 Rime 用户目录的 `lua/` 文件夹：
+
+```bash
+cp rime/tstats.lua ~/Library/Rime/lua/tstats.lua
+```
+
+> 其他平台路径：Linux `~/.local/share/fcitx5/rime/lua/`，Windows `%APPDATA%\Rime\lua\`
+
+#### 2. 在输入方案中挂载
+
+编辑你使用的输入方案的 `.custom.yaml` 文件，将 `lua_filter@*tstats` 添加到 `engine/filters` 列表中。
+
+以雾凇拼音为例，编辑 `~/Library/Rime/rime_ice.custom.yaml`：
+
+```yaml
+patch:
+  "engine/filters":
+    - lua_filter@*tstats          # ← 添加这一行
+    - lua_filter@*corrector
+    - reverse_lookup_filter@radical_reverse_lookup
+    # ... 其他 filter 保持不变
+    - uniquifier
+```
+
+如果同时使用多个方案（如小鹤双拼），每个方案的 `.custom.yaml` 都需要添加。
+
+#### 3. 重新部署
+
+在 Squirrel 菜单中点击「重新部署」，或运行：
+
+```bash
+/Library/Input\ Methods/Squirrel.app/Contents/MacOS/Squirrel --reload
+```
+
+部署完成后，正常打字即可在 `~/Library/Rime/` 下看到 `typing_stats_today.json` 文件生成。
+
+### tstats.lua 工作原理
+
+- **挂载方式**：作为 `lua_filter` 运行，对候选词透传不修改，仅在后台统计
+- **字符计数**：区分 CJK（中日韩统一表意文字）和 ASCII，按 Unicode 码点范围判断
+- **活跃时长**：精确计时，从组合开始（首次按键）到上屏，累加每次组合时间，超过 120 秒的间隔自动忽略
+- **峰值速度**：60 秒滑动窗口，至少 3 次上屏且窗口跨度 ≥ 10 秒时计算 CPM
+- **新造词检测**：识别 `user_phrase` 类型候选词，长度 ≥ 2 且当日首次出现时记录
+- **写入策略**：1 秒防抖，跨日自动归档到 `.jsonl` 并重置当日统计
+- **生命周期**：`init` 加载已有数据 → `func` 透传候选词并收集用户词 → `fini` 落盘保存
 
 ## 安装
 
