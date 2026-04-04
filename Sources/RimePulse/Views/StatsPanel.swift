@@ -3,13 +3,11 @@ import SwiftUI
 
 struct StatsPanel: View {
     let reader: StatsReader
+    let labelWidth: CGFloat
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     private var panelWidth: CGFloat {
-        let sample = StatusBarLabel.format(stats: reader.today)
-        let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-        let width = (sample as NSString).size(withAttributes: [.font: font]).width
-        return max(width + 20, 200)
+        max(labelWidth, 220)
     }
 
     var body: some View {
