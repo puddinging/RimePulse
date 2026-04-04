@@ -14,7 +14,7 @@ run: build
 release:
 	swift build -c release
 
-test:
+test: build
 	swift Tests/run_tests.swift
 
 clean:

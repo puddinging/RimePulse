@@ -53,21 +53,22 @@ struct TypingStats: Codable, Identifiable, Sendable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        // date is the only truly required field — record identity
         date = try c.decode(String.self, forKey: .date)
-        createdAt = (try? c.decode(Int64.self, forKey: .createdAt)) ?? 0
-        updatedAt = (try? c.decode(Int64.self, forKey: .updatedAt)) ?? 0
-        chars = (try? c.decode(Int.self, forKey: .chars)) ?? 0
-        charsCjk = (try? c.decode(Int.self, forKey: .charsCjk)) ?? 0
-        wordsEn = (try? c.decode(Int.self, forKey: .wordsEn))
-                  ?? (try? c.decode(Int.self, forKey: .charsAscii))
-                  ?? 0
-        commits = (try? c.decode(Int.self, forKey: .commits)) ?? 0
-        avgWordLength = (try? c.decode(Double.self, forKey: .avgWordLength)) ?? 0
-        charsPerMinute = (try? c.decode(Int.self, forKey: .charsPerMinute)) ?? 0
-        peakCpm = (try? c.decode(Int.self, forKey: .peakCpm)) ?? 0
-        activeMinutes = (try? c.decode(Double.self, forKey: .activeMinutes)) ?? 0
-        newWordsCount = (try? c.decode(Int.self, forKey: .newWordsCount)) ?? 0
-        newWords = (try? c.decode([String].self, forKey: .newWords)) ?? []
+        createdAt = try c.decode(Int64.self, forKey: .createdAt)
+        updatedAt = try c.decode(Int64.self, forKey: .updatedAt)
+        chars = try c.decode(Int.self, forKey: .chars)
+        charsCjk = try c.decode(Int.self, forKey: .charsCjk)
+        // Legacy fallback: words_en ← chars_ascii (field renamed)
+        wordsEn = try (try? c.decode(Int.self, forKey: .wordsEn))
+                  ?? c.decode(Int.self, forKey: .charsAscii)
+        commits = try c.decode(Int.self, forKey: .commits)
+        avgWordLength = try c.decode(Double.self, forKey: .avgWordLength)
+        charsPerMinute = try c.decode(Int.self, forKey: .charsPerMinute)
+        peakCpm = try c.decode(Int.self, forKey: .peakCpm)
+        activeMinutes = try c.decode(Double.self, forKey: .activeMinutes)
+        newWordsCount = try c.decode(Int.self, forKey: .newWordsCount)
+        newWords = try c.decode([String].self, forKey: .newWords)
     }
 
     /// For testing and programmatic creation
