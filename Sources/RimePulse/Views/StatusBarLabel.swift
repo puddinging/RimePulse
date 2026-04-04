@@ -12,7 +12,6 @@ struct StatusBarLabel: View {
 
     var body: some View {
         Text(Self.format(stats: stats))
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
             .monospacedDigit()
     }
 }

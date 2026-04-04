@@ -3,12 +3,7 @@ import SwiftUI
 
 struct StatsPanel: View {
     let reader: StatsReader
-    let labelWidth: CGFloat
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
-
-    private var panelWidth: CGFloat {
-        max(labelWidth, 220)
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -50,6 +45,7 @@ struct StatsPanel: View {
                     .controlSize(.mini)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+                    .tint(Color(nsColor: .controlAccentColor))
                     .onChange(of: launchAtLogin) { _, newValue in
                         do {
                             if newValue {
@@ -76,6 +72,6 @@ struct StatsPanel: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
         }
-        .frame(width: panelWidth)
+        .frame(width: 240)
     }
 }
