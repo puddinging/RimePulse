@@ -164,7 +164,11 @@ final class StatsReader {
     }
 
     private func loadToday() {
-        guard let data = FileManager.default.contents(atPath: todayPath) else { return }
+        guard let data = FileManager.default.contents(atPath: todayPath) else {
+            today = nil
+            lastUpdatedAt = 0
+            return
+        }
 
         let stats: TypingStats
         do {

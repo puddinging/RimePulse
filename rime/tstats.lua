@@ -129,6 +129,7 @@ local function save_today()
     local f = io.open(data_dir .. "/typing_stats_today.json", "w")
     if not f then return end
     local min, cpm, avg_len = derived(stats)
+    local peak = math.max(stats.peak_cpm, cpm)
     f:write(string.format('{\n'
         .. '  "date": "%s",\n'
         .. '  "created_at": %d,\n'
@@ -145,7 +146,7 @@ local function save_today()
         .. '  "new_words": [%s]\n}\n',
         stats.date, stats.created_at, stats.updated_at,
         stats.chars, stats.chars_cjk, stats.words_en,
-        stats.commits, avg_len, cpm, stats.peak_cpm, min,
+        stats.commits, avg_len, cpm, peak, min,
         #stats.new_words, words_json(stats.new_words)
     ))
     f:close()
@@ -157,6 +158,7 @@ local function archive()
     local f = io.open(data_dir .. "/typing_stats.jsonl", "a")
     if not f then return end
     local min, cpm, avg_len = derived(stats)
+    local peak = math.max(stats.peak_cpm, cpm)
     f:write(string.format(
         '{"date":"%s","created_at":%d,"updated_at":%d,'
         .. '"chars":%d,"chars_cjk":%d,"words_en":%d,'
@@ -165,7 +167,7 @@ local function archive()
         .. '"new_words_count":%d,"new_words":[%s]}\n',
         stats.date, stats.created_at, stats.updated_at,
         stats.chars, stats.chars_cjk, stats.words_en,
-        stats.commits, avg_len, cpm, stats.peak_cpm, min,
+        stats.commits, avg_len, cpm, peak, min,
         #stats.new_words, words_json(stats.new_words)
     ))
     f:close()
