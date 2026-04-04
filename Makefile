@@ -1,4 +1,4 @@
-.PHONY: build run clean install bundle
+.PHONY: build run clean install bundle test
 
 APP_NAME = RimePulse
 BUILD_DIR = .build
@@ -13,6 +13,9 @@ run: build
 
 release:
 	swift build -c release
+
+test:
+	swift Tests/run_tests.swift
 
 clean:
 	swift package clean
