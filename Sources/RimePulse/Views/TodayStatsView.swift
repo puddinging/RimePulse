@@ -15,7 +15,7 @@ struct TodayStatsView: View {
                 Text("\(stats.chars)")
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                     .monospacedDigit()
-                Text("中文 \(stats.charsCjk)  ·  英文 \(stats.charsAscii)")
+                Text("中文 \(stats.charsCjk)  ·  英文 \(stats.wordsEn)")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }

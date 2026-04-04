@@ -5,6 +5,13 @@ struct StatsPanel: View {
     let reader: StatsReader
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
+    private var panelWidth: CGFloat {
+        let sample = StatusBarLabel.format(stats: reader.today)
+        let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let width = (sample as NSString).size(withAttributes: [.font: font]).width
+        return max(width + 20, 200)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let today = reader.today {
@@ -71,6 +78,6 @@ struct StatsPanel: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
         }
-        .frame(width: 196)
+        .frame(width: panelWidth)
     }
 }

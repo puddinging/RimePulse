@@ -29,7 +29,7 @@ local function new_stats()
         updated_at = now_ms(),
         chars = 0,
         chars_cjk = 0,
-        chars_ascii = 0,
+        words_en = 0,
         commits = 0,
         active_seconds = 0,
         peak_cpm = 0,
@@ -78,18 +78,23 @@ local function update_peak(now, char_count)
     end
 end
 
-local function count_cjk(text)
-    local cjk, ascii = 0, 0
+local function count_text(text)
+    local cjk = 0
     for _, cp in utf8.codes(text) do
         if (cp >= 0x4E00 and cp <= 0x9FFF) or
            (cp >= 0x3400 and cp <= 0x4DBF) or
            (cp >= 0x20000 and cp <= 0x2A6DF) then
             cjk = cjk + 1
-        elseif cp >= 0x21 and cp <= 0x7E then
-            ascii = ascii + 1
         end
     end
-    return cjk, ascii
+    -- 英文按单词计数：匹配至少包含一个字母的连续非空白序列
+    local words_en = 0
+    for word in text:gmatch("%S+") do
+        if word:match("[%a]") then
+            words_en = words_en + 1
+        end
+    end
+    return cjk, words_en
 end
 
 local function load_today()
@@ -104,7 +109,7 @@ local function load_today()
     s.created_at = tonumber(c:match('"created_at"%s*:%s*(%d+)')) or now_ms()
     s.chars = tonumber(c:match('"chars"%s*:%s*(%d+)')) or 0
     s.chars_cjk = tonumber(c:match('"chars_cjk"%s*:%s*(%d+)')) or 0
-    s.chars_ascii = tonumber(c:match('"chars_ascii"%s*:%s*(%d+)')) or 0
+    s.words_en = tonumber(c:match('"words_en"%s*:%s*(%d+)')) or 0
     s.commits = tonumber(c:match('"commits"%s*:%s*(%d+)')) or 0
     s.active_seconds = (tonumber(c:match('"active_minutes"%s*:%s*([%d%.]+)')) or 0) * 60
     s.peak_cpm = tonumber(c:match('"peak_cpm"%s*:%s*(%d+)')) or 0
@@ -130,7 +135,7 @@ local function save_today()
         .. '  "updated_at": %d,\n'
         .. '  "chars": %d,\n'
         .. '  "chars_cjk": %d,\n'
-        .. '  "chars_ascii": %d,\n'
+        .. '  "words_en": %d,\n'
         .. '  "commits": %d,\n'
         .. '  "avg_word_length": %.1f,\n'
         .. '  "chars_per_minute": %d,\n'
@@ -139,7 +144,7 @@ local function save_today()
         .. '  "new_words_count": %d,\n'
         .. '  "new_words": [%s]\n}\n',
         stats.date, stats.created_at, stats.updated_at,
-        stats.chars, stats.chars_cjk, stats.chars_ascii,
+        stats.chars, stats.chars_cjk, stats.words_en,
         stats.commits, avg_len, cpm, stats.peak_cpm, min,
         #stats.new_words, words_json(stats.new_words)
     ))
@@ -154,12 +159,12 @@ local function archive()
     local min, cpm, avg_len = derived(stats)
     f:write(string.format(
         '{"date":"%s","created_at":%d,"updated_at":%d,'
-        .. '"chars":%d,"chars_cjk":%d,"chars_ascii":%d,'
+        .. '"chars":%d,"chars_cjk":%d,"words_en":%d,'
         .. '"commits":%d,"avg_word_length":%.1f,'
         .. '"chars_per_minute":%d,"peak_cpm":%d,"active_minutes":%.1f,'
         .. '"new_words_count":%d,"new_words":[%s]}\n',
         stats.date, stats.created_at, stats.updated_at,
-        stats.chars, stats.chars_cjk, stats.chars_ascii,
+        stats.chars, stats.chars_cjk, stats.words_en,
         stats.commits, avg_len, cpm, stats.peak_cpm, min,
         #stats.new_words, words_json(stats.new_words)
     ))
@@ -183,12 +188,12 @@ local function on_commit(ctx)
     end
 
     local now = os.time()
-    local n = utf8.len(text) or 0
-    local cjk, ascii = count_cjk(text)
+    local cjk, words_en = count_text(text)
+    local n = cjk + words_en
 
     stats.chars = stats.chars + n
     stats.chars_cjk = stats.chars_cjk + cjk
-    stats.chars_ascii = stats.chars_ascii + ascii
+    stats.words_en = stats.words_en + words_en
     stats.commits = stats.commits + 1
 
     -- 精确计时：组合开始(首次按键) → 上屏，累加这段时间
