@@ -7,28 +7,45 @@ import os.log
 final class StatsReader {
     private(set) var today: TypingStats?
     private(set) var history: [TypingStats] = []
+    private(set) var trendHistory: [TypingStats] = []
 
     private var fileSource: DispatchSourceFileSystemObject?
     private var dirSource: DispatchSourceFileSystemObject?
+    private var dayTickSource: DispatchSourceTimer?
     private var fileDescriptor: Int32 = -1
     private var dirDescriptor: Int32 = -1
     private var lastUpdatedAt: Int64 = 0
+    private var currentDate: String
+    private var staleTodayForHistory: TypingStats?
     private let dataDir: String
-    private let todayPath: String
+    private let todayPaths: [String]
+    private let historyPaths: [String]
 
-    private static let todayFile = "typing_stats_today.json"
-    private static let historyFile = "typing_stats.jsonl"
+    private static let todayFiles = ["typing_stats_today.txt", "typing_stats_today.json"]
+    private static let historyFiles = ["typing_stats.txt", "typing_stats.jsonl"]
     private static let logger = Logger(subsystem: "im.rime.RimePulse", category: "StatsReader")
     private static let maxRetryDelay: TimeInterval = 30
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
 
     private static let configPath = NSHomeDirectory() + "/.config/rimestats/config.json"
     private static let defaultDataDir = NSHomeDirectory() + "/Library/Rime"
 
     init() {
-        dataDir = Self.resolveDataDir()
-        todayPath = "\(dataDir)/\(Self.todayFile)"
+        currentDate = Self.currentDateString()
+        let resolvedDataDir = Self.resolveDataDir()
+        dataDir = resolvedDataDir
+        todayPaths = Self.todayFiles.map { "\(resolvedDataDir)/\($0)" }
+        historyPaths = Self.historyFiles.map { "\(resolvedDataDir)/\($0)" }
         loadAll()
         startWatching()
+        startDayTicker()
     }
 
     private static func resolveDataDir() -> String {
@@ -54,12 +71,46 @@ final class StatsReader {
     func stop() {
         fileSource?.cancel()
         dirSource?.cancel()
+        dayTickSource?.cancel()
         if fileDescriptor >= 0 { close(fileDescriptor) }
         if dirDescriptor >= 0 { close(dirDescriptor) }
         fileSource = nil
         dirSource = nil
+        dayTickSource = nil
         fileDescriptor = -1
         dirDescriptor = -1
+    }
+
+    private static func currentDateString() -> String {
+        dayFormatter.string(from: Date())
+    }
+
+    private static func filename(from path: String) -> String {
+        URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    private func firstExistingPath(in paths: [String]) -> String? {
+        for path in paths where FileManager.default.fileExists(atPath: path) {
+            return path
+        }
+        return nil
+    }
+
+    private func startDayTicker() {
+        let source = DispatchSource.makeTimerSource(queue: .main)
+        source.schedule(deadline: .now() + .seconds(60), repeating: .seconds(60))
+        source.setEventHandler { [weak self] in
+            self?.refreshForDayChangeIfNeeded()
+        }
+        source.resume()
+        dayTickSource = source
+    }
+
+    private func refreshForDayChangeIfNeeded() {
+        let nowDate = Self.currentDateString()
+        guard nowDate != currentDate else { return }
+        currentDate = nowDate
+        loadAll()
     }
 
     private func startWatching() {
@@ -70,7 +121,8 @@ final class StatsReader {
     }
 
     private func watchFile() -> Bool {
-        let fd = open(todayPath, O_EVTONLY)
+        let watchPath = firstExistingPath(in: todayPaths) ?? todayPaths[0]
+        let fd = open(watchPath, O_EVTONLY)
         guard fd >= 0 else { return false }
 
         fileDescriptor = fd
@@ -123,7 +175,7 @@ final class StatsReader {
         source.setEventHandler { [weak self] in
             guard let self else { return }
             // 目录有变更，检查文件是否已创建
-            if FileManager.default.fileExists(atPath: self.todayPath) {
+            if self.firstExistingPath(in: self.todayPaths) != nil {
                 self.loadToday()
                 // 仅在 watchFile 成功后才取消目录监听
                 if self.watchFile() {
@@ -164,9 +216,14 @@ final class StatsReader {
     }
 
     private func loadToday() {
-        guard let data = FileManager.default.contents(atPath: todayPath) else {
+        guard let todayPath = firstExistingPath(in: todayPaths),
+              let data = FileManager.default.contents(atPath: todayPath) else {
             today = nil
             lastUpdatedAt = 0
+            if staleTodayForHistory != nil {
+                staleTodayForHistory = nil
+                loadHistory()
+            }
             return
         }
 
@@ -174,11 +231,32 @@ final class StatsReader {
         do {
             stats = try JSONDecoder().decode(TypingStats.self, from: data)
         } catch {
-            Self.logger.error("Failed to decode \(Self.todayFile): \(error.localizedDescription)")
+            Self.logger.error("Failed to decode \(Self.filename(from: todayPath)): \(error.localizedDescription)")
             return
         }
 
-        if stats.updatedAt != lastUpdatedAt {
+        let nowDate = Self.currentDateString()
+        if stats.date != nowDate {
+            currentDate = nowDate
+            today = nil
+            lastUpdatedAt = 0
+
+            let shouldRefreshHistory =
+                staleTodayForHistory?.date != stats.date ||
+                staleTodayForHistory?.updatedAt != stats.updatedAt
+            if shouldRefreshHistory {
+                staleTodayForHistory = stats
+                loadHistory()
+            }
+            return
+        }
+
+        if staleTodayForHistory != nil {
+            staleTodayForHistory = nil
+            loadHistory()
+        }
+
+        if stats.updatedAt != lastUpdatedAt || today?.date != stats.date {
             lastUpdatedAt = stats.updatedAt
             today = stats
             loadHistory()
@@ -186,25 +264,49 @@ final class StatsReader {
     }
 
     private func loadHistory() {
-        let path = "\(dataDir)/\(Self.historyFile)"
-        guard let data = FileManager.default.contents(atPath: path),
+        guard let path = firstExistingPath(in: historyPaths),
+              let data = FileManager.default.contents(atPath: path),
               let content = String(data: data, encoding: .utf8) else {
-            history = []
+            if let staleToday = staleTodayForHistory {
+                history = [staleToday]
+                trendHistory = [staleToday]
+            } else {
+                history = []
+                trendHistory = []
+            }
             return
         }
 
         let decoder = JSONDecoder()
-        var result: [TypingStats] = []
+        var latestByDate: [String: TypingStats] = [:]
+
+        func mergeRecord(_ record: TypingStats) {
+            if let old = latestByDate[record.date] {
+                if record.updatedAt >= old.updatedAt {
+                    latestByDate[record.date] = record
+                }
+            } else {
+                latestByDate[record.date] = record
+            }
+        }
 
         for (index, line) in content.components(separatedBy: "\n").enumerated() where !line.isEmpty {
             guard let lineData = line.data(using: .utf8) else { continue }
             do {
-                result.append(try decoder.decode(TypingStats.self, from: lineData))
+                mergeRecord(try decoder.decode(TypingStats.self, from: lineData))
             } catch {
-                Self.logger.error("Failed to decode \(Self.historyFile) line \(index + 1): \(error.localizedDescription)")
+                Self.logger.error("Failed to decode \(Self.filename(from: path)) line \(index + 1): \(error.localizedDescription)")
             }
         }
 
+        if let staleToday = staleTodayForHistory {
+            mergeRecord(staleToday)
+        }
+
+        var result = Array(latestByDate.values)
+        result.sort { $0.date < $1.date }
+
+        trendHistory = result
         // 最近 7 天，按日期倒序
         history = Array(result.suffix(7).reversed())
     }

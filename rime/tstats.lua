@@ -1,18 +1,24 @@
--- 打字统计：每日字数、打字速度、中英比例、新造词
+-- 打字统计：每日字数、打字速度、中英比例
 -- 挂载：engine/filters 中添加 lua_filter@*tstats
 -- 数据文件：{rime_user_dir}/
---   typing_stats_today.json  — 当日实时统计（覆盖更新）
---   typing_stats.jsonl       — 历史统计（JSONL 逐日追加）
+--   typing_stats_today.txt   — 当日实时统计（覆盖更新，主文件）
+--   typing_stats.txt         — 历史统计（JSONL 逐日追加，主文件）
+-- 兼容：同时写入旧文件
+--   typing_stats_today.json
+--   typing_stats.jsonl
 
 local M = {}
 
 local stats = nil
-local seen_today = {}
-local user_phrases = {}
 local last_commit_ts = 0
 local last_save_ts = 0
 local compose_start_ts = 0   -- 当前组合开始时间（首次按键）
 local data_dir = ""
+local today_file = "typing_stats_today.txt"
+local history_file = "typing_stats.txt"
+local legacy_today_file = "typing_stats_today.json"
+local legacy_history_file = "typing_stats.jsonl"
+local archive
 
 local function json_esc(s)
     return s:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('\n', '\\n'):gsub('\r', '')
@@ -20,6 +26,39 @@ end
 
 local function now_ms()
     return os.time() * 1000
+end
+
+local function read_first_existing(files)
+    for _, file in ipairs(files) do
+        local f = io.open(data_dir .. "/" .. file, "r")
+        if f then
+            local content = f:read("*a")
+            f:close()
+            return content
+        end
+    end
+    return nil
+end
+
+local function write_file(path, content, mode)
+    local f = io.open(path, mode or "w")
+    if not f then return false end
+    f:write(content)
+    f:close()
+    return true
+end
+
+local function history_has_date(path, date)
+    local f = io.open(path, "r")
+    if not f then return false end
+    local content = f:read("*a")
+    f:close()
+    return content:find('"date"%s*:%s*"' .. date .. '"') ~= nil
+end
+
+local function clear_stale_today_files()
+    os.remove(data_dir .. "/" .. today_file)
+    os.remove(data_dir .. "/" .. legacy_today_file)
 end
 
 local function new_stats()
@@ -98,12 +137,33 @@ local function count_text(text)
 end
 
 local function load_today()
-    local f = io.open(data_dir .. "/typing_stats_today.json", "r")
-    if not f then return nil end
-    local c = f:read("*a")
-    f:close()
+    local c = read_first_existing({today_file, legacy_today_file})
+    if not c then return nil end
     local d = c:match('"date"%s*:%s*"([^"]+)"')
-    if d ~= os.date("%Y-%m-%d") then return nil end
+    if d ~= os.date("%Y-%m-%d") then
+        -- 文件是昨天（或更早）的数据，先归档再返回 nil
+        local old = new_stats()
+        old.date = d
+        old.created_at = tonumber(c:match('"created_at"%s*:%s*(%d+)')) or 0
+        old.updated_at = tonumber(c:match('"updated_at"%s*:%s*(%d+)')) or 0
+        old.chars = tonumber(c:match('"chars"%s*:%s*(%d+)')) or 0
+        old.chars_cjk = tonumber(c:match('"chars_cjk"%s*:%s*(%d+)')) or 0
+        old.words_en = tonumber(c:match('"words_en"%s*:%s*(%d+)')) or 0
+        old.commits = tonumber(c:match('"commits"%s*:%s*(%d+)')) or 0
+        old.active_seconds = (tonumber(c:match('"active_minutes"%s*:%s*([%d%.]+)')) or 0) * 60
+        old.peak_cpm = tonumber(c:match('"peak_cpm"%s*:%s*(%d+)')) or 0
+        if old.chars > 0 then
+            stats = old
+            local archived = archive()
+            stats = nil
+            if archived then
+                clear_stale_today_files()
+            end
+        else
+            clear_stale_today_files()
+        end
+        return nil
+    end
     local s = new_stats()
     s.date = d
     s.created_at = tonumber(c:match('"created_at"%s*:%s*(%d+)')) or now_ms()
@@ -113,24 +173,15 @@ local function load_today()
     s.commits = tonumber(c:match('"commits"%s*:%s*(%d+)')) or 0
     s.active_seconds = (tonumber(c:match('"active_minutes"%s*:%s*([%d%.]+)')) or 0) * 60
     s.peak_cpm = tonumber(c:match('"peak_cpm"%s*:%s*(%d+)')) or 0
-    local ws = c:match('"new_words"%s*:%s*%[(.-)%]')
-    if ws then
-        for w in ws:gmatch('"([^"]+)"') do
-            s.new_words[#s.new_words + 1] = w
-            seen_today[w] = true
-        end
-    end
     return s
 end
 
 local function save_today()
     if not stats or stats.chars == 0 then return end
     stats.updated_at = now_ms()
-    local f = io.open(data_dir .. "/typing_stats_today.json", "w")
-    if not f then return end
     local min, cpm, avg_len = derived(stats)
     local peak = math.max(stats.peak_cpm, cpm)
-    f:write(string.format('{\n'
+    local content = string.format('{\n'
         .. '  "date": "%s",\n'
         .. '  "created_at": %d,\n'
         .. '  "updated_at": %d,\n'
@@ -148,18 +199,23 @@ local function save_today()
         stats.chars, stats.chars_cjk, stats.words_en,
         stats.commits, avg_len, cpm, peak, min,
         #stats.new_words, words_json(stats.new_words)
-    ))
-    f:close()
+    )
+
+    local p1 = data_dir .. "/" .. today_file
+    local p2 = data_dir .. "/" .. legacy_today_file
+    local ok_primary = write_file(p1, content, "w")
+    local ok_legacy = write_file(p2, content, "w")
+    if not ok_primary and not ok_legacy then
+        return
+    end
 end
 
-local function archive()
-    if not stats or stats.chars == 0 then return end
+archive = function()
+    if not stats or stats.chars == 0 then return false end
     stats.updated_at = now_ms()
-    local f = io.open(data_dir .. "/typing_stats.jsonl", "a")
-    if not f then return end
     local min, cpm, avg_len = derived(stats)
     local peak = math.max(stats.peak_cpm, cpm)
-    f:write(string.format(
+    local line = string.format(
         '{"date":"%s","created_at":%d,"updated_at":%d,'
         .. '"chars":%d,"chars_cjk":%d,"words_en":%d,'
         .. '"commits":%d,"avg_word_length":%.1f,'
@@ -169,8 +225,13 @@ local function archive()
         stats.chars, stats.chars_cjk, stats.words_en,
         stats.commits, avg_len, cpm, peak, min,
         #stats.new_words, words_json(stats.new_words)
-    ))
-    f:close()
+    )
+
+    local p1 = data_dir .. "/" .. history_file
+    local p2 = data_dir .. "/" .. legacy_history_file
+    local ok_primary = history_has_date(p1, stats.date) or write_file(p1, line, "a")
+    local ok_legacy = history_has_date(p2, stats.date) or write_file(p2, line, "a")
+    return ok_primary or ok_legacy
 end
 
 local function on_commit(ctx)
@@ -181,8 +242,6 @@ local function on_commit(ctx)
     if stats.date ~= today then
         archive()
         stats = new_stats()
-        seen_today = {}
-        user_phrases = {}
         peak_window = {}
         last_commit_ts = 0
         last_save_ts = 0
@@ -209,11 +268,6 @@ local function on_commit(ctx)
     last_commit_ts = now
 
     update_peak(now, n)
-
-    if n >= 2 and user_phrases[text] and not seen_today[text] then
-        seen_today[text] = true
-        stats.new_words[#stats.new_words + 1] = text
-    end
 
     -- 1 秒防抖：距上次写入超过 1 秒才落盘
     if now - last_save_ts >= 1 then
@@ -248,9 +302,6 @@ end
 
 function M.func(input)
     for cand in input:iter() do
-        if cand.type == "user_phrase" then
-            user_phrases[cand.text] = true
-        end
         yield(cand)
     end
 end

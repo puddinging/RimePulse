@@ -12,19 +12,26 @@ struct HistoryRowView: View {
     }
 
     var body: some View {
-        Grid(alignment: .trailing, horizontalSpacing: 4) {
-            GridRow {
-                Text(shortDate)
-                    .gridColumnAlignment(.leading)
-                Text("\(stats.chars)字")
-                Text("\(stats.charsPerMinute)/分")
-                    .foregroundStyle(.orange)
-                Text(String(format: "%.0f分钟", stats.activeMinutes))
-                    .foregroundStyle(.secondary)
-            }
+        HStack(spacing: 6) {
+            Text(shortDate)
+                .frame(width: 34, alignment: .leading)
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 0)
+
+            Text("\(stats.chars)字")
+                .frame(width: 52, alignment: .trailing)
+
+            Text("\(stats.charsPerMinute)/分")
+                .frame(width: 56, alignment: .trailing)
+                .foregroundStyle(.orange)
+
+            Text(String(format: "%.0f分", stats.activeMinutes))
+                .frame(width: 40, alignment: .trailing)
+                .foregroundStyle(.secondary)
         }
-        .font(.system(size: 10, design: .monospaced))
-        .padding(.horizontal, 10)
-        .padding(.vertical, 2)
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .monospacedDigit()
+        .lineLimit(1)
     }
 }

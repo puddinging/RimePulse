@@ -32,7 +32,7 @@ struct StatsPanel: View {
             if !reader.history.isEmpty || reader.today != nil {
                 Divider()
                     .padding(.horizontal, 10)
-                TotalStatsView(today: reader.today, history: reader.history)
+                TotalStatsView(today: reader.today, trendHistory: reader.trendHistory)
                     .padding(.vertical, 6)
             }
 
