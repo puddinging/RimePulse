@@ -29,7 +29,7 @@ struct TodayStatsView: View {
             .padding(.vertical, 2)
 
             // 指标卡片
-            SpeedMetricCard(current: stats.charsPerMinute, peak: stats.peakCpm, color: MetricColors.charsPerMinute)
+            SpeedMetricCard(current: stats.liveCurrentCpm, peak: stats.peakCpm, color: MetricColors.charsPerMinute)
             HStack(spacing: 6) {
                 MetricCard(value: String(format: "%.1f", stats.activeMinutes), unit: "分钟", label: "活跃时长", color: MetricColors.activeMinutes)
                 MetricCard(value: "\(stats.commits)", unit: "次", label: "提交", color: MetricColors.commits)

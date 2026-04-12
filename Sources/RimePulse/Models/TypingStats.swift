@@ -12,10 +12,22 @@ struct TypingStats: Codable, Identifiable, Sendable {
     let commits: Int
     let avgWordLength: Double
     let charsPerMinute: Int
+    let currentCpm: Int
     let peakCpm: Int
     let activeMinutes: Double
     let newWordsCount: Int
     let newWords: [String]
+
+    // 超过该时间未更新，实时速度视为 0，避免展示陈旧速度
+    private static let currentCpmStaleMs: Int64 = 15_000
+    // 低于该值认为不是 Unix 毫秒时间戳（例如旧版本写入的单调时间）
+    private static let epochLowerBoundMs: Int64 = 946_684_800_000 // 2000-01-01
+
+    var liveCurrentCpm: Int {
+        guard updatedAt >= Self.epochLowerBoundMs else { return currentCpm }
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        return nowMs - updatedAt > Self.currentCpmStaleMs ? 0 : currentCpm
+    }
 
     private enum CodingKeys: String, CodingKey {
         case date
@@ -28,6 +40,7 @@ struct TypingStats: Codable, Identifiable, Sendable {
         case commits
         case avgWordLength = "avg_word_length"
         case charsPerMinute = "chars_per_minute"
+        case currentCpm = "current_cpm"
         case peakCpm = "peak_cpm"
         case activeMinutes = "active_minutes"
         case newWordsCount = "new_words_count"
@@ -45,6 +58,7 @@ struct TypingStats: Codable, Identifiable, Sendable {
         try c.encode(commits, forKey: .commits)
         try c.encode(avgWordLength, forKey: .avgWordLength)
         try c.encode(charsPerMinute, forKey: .charsPerMinute)
+        try c.encode(currentCpm, forKey: .currentCpm)
         try c.encode(peakCpm, forKey: .peakCpm)
         try c.encode(activeMinutes, forKey: .activeMinutes)
         try c.encode(newWordsCount, forKey: .newWordsCount)
@@ -65,6 +79,7 @@ struct TypingStats: Codable, Identifiable, Sendable {
         commits = try c.decode(Int.self, forKey: .commits)
         avgWordLength = try c.decode(Double.self, forKey: .avgWordLength)
         charsPerMinute = try c.decode(Int.self, forKey: .charsPerMinute)
+        currentCpm = (try? c.decode(Int.self, forKey: .currentCpm)) ?? charsPerMinute
         peakCpm = try c.decode(Int.self, forKey: .peakCpm)
         activeMinutes = try c.decode(Double.self, forKey: .activeMinutes)
         newWordsCount = try c.decode(Int.self, forKey: .newWordsCount)
@@ -76,7 +91,7 @@ struct TypingStats: Codable, Identifiable, Sendable {
         date: String, createdAt: Int64 = 0, updatedAt: Int64 = 0,
         chars: Int = 0, charsCjk: Int = 0, wordsEn: Int = 0,
         commits: Int = 0, avgWordLength: Double = 0,
-        charsPerMinute: Int = 0, peakCpm: Int = 0,
+        charsPerMinute: Int = 0, currentCpm: Int? = nil, peakCpm: Int = 0,
         activeMinutes: Double = 0, newWordsCount: Int = 0, newWords: [String] = []
     ) {
         self.date = date
@@ -88,6 +103,7 @@ struct TypingStats: Codable, Identifiable, Sendable {
         self.commits = commits
         self.avgWordLength = avgWordLength
         self.charsPerMinute = charsPerMinute
+        self.currentCpm = currentCpm ?? charsPerMinute
         self.peakCpm = peakCpm
         self.activeMinutes = activeMinutes
         self.newWordsCount = newWordsCount

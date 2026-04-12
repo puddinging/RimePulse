@@ -52,7 +52,7 @@ enum TestRunner {
             let s = try decode("""
             {"date":"2026-04-04","created_at":1743724800,"updated_at":1743768000,
              "chars":1730,"chars_cjk":1424,"words_en":92,"commits":646,
-             "avg_word_length":2.1,"chars_per_minute":52,"peak_cpm":158,
+             "avg_word_length":2.1,"chars_per_minute":52,"current_cpm":49,"peak_cpm":158,
              "active_minutes":33.3,"new_words_count":283,"new_words":["a","b"]}
             """)
             assertEqual(s.date, "2026-04-04")
@@ -61,6 +61,7 @@ enum TestRunner {
             assertEqual(s.wordsEn, 92)
             assertEqual(s.commits, 646)
             assertEqual(s.charsPerMinute, 52)
+            assertEqual(s.currentCpm, 49)
             assertEqual(s.peakCpm, 158)
             assertEqual(s.newWords, ["a", "b"])
         } catch { failed += 1; print("  FAIL: unexpected throw: \(error)") }
@@ -74,6 +75,7 @@ enum TestRunner {
              "active_minutes":10.0,"new_words_count":5,"new_words":[]}
             """)
             assertEqual(s.wordsEn, 100, "chars_ascii should fall back to wordsEn")
+            assertEqual(s.currentCpm, 30, "missing current_cpm should fall back to chars_per_minute")
         } catch { failed += 1; print("  FAIL: unexpected throw: \(error)") }
 
         section("words_en takes priority over chars_ascii")
@@ -125,6 +127,28 @@ enum TestRunner {
              "active_minutes":0,"new_words_count":0,"new_words":[]}
             """)
             assertEqual(s.id, "2026-12-25")
+        } catch { failed += 1; print("  FAIL: unexpected throw: \(error)") }
+
+        section("liveCurrentCpm fallback for non-epoch updated_at")
+        do {
+            let s = try decode("""
+            {"date":"2026-04-12","created_at":0,"updated_at":206178561,
+             "chars":100,"chars_cjk":80,"words_en":20,"commits":10,
+             "avg_word_length":1.0,"chars_per_minute":20,"current_cpm":77,"peak_cpm":90,
+             "active_minutes":5.0,"new_words_count":0,"new_words":[]}
+            """)
+            assertEqual(s.liveCurrentCpm, 77)
+        } catch { failed += 1; print("  FAIL: unexpected throw: \(error)") }
+
+        section("liveCurrentCpm stale for old epoch updated_at")
+        do {
+            let s = try decode("""
+            {"date":"2026-04-12","created_at":0,"updated_at":1000000000000,
+             "chars":100,"chars_cjk":80,"words_en":20,"commits":10,
+             "avg_word_length":1.0,"chars_per_minute":20,"current_cpm":77,"peak_cpm":90,
+             "active_minutes":5.0,"new_words_count":0,"new_words":[]}
+            """)
+            assertEqual(s.liveCurrentCpm, 0)
         } catch { failed += 1; print("  FAIL: unexpected throw: \(error)") }
 
         section("Encode round-trip")
