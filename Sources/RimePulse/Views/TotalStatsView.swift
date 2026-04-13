@@ -127,6 +127,26 @@ struct TotalStatsView: View {
         aggregatedRecords.count <= 90
     }
 
+    private var trendLineWidth: CGFloat {
+        switch aggregatedRecords.count {
+        case 0...14:
+            return 3
+        case 15...60:
+            return 2.8
+        default:
+            return 2.4
+        }
+    }
+
+    private var pointSymbolSize: CGFloat {
+        aggregatedRecords.count <= 30 ? 14 : 10
+    }
+
+    private var trendInterpolation: InterpolationMethod {
+        // monotone 避免过冲，在跨度较大时可保持平滑且更稳定。
+        aggregatedRecords.count >= 3 ? .monotone : .linear
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
@@ -145,8 +165,8 @@ struct TotalStatsView: View {
                     y: .value("相对值", point.normalizedValue),
                     series: .value("指标", point.metric.title)
                 )
-                .interpolationMethod(.catmullRom)
-                .lineStyle(StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+                .interpolationMethod(trendInterpolation)
+                .lineStyle(StrokeStyle(lineWidth: trendLineWidth, lineCap: .round, lineJoin: .round))
                 .foregroundStyle(point.metric.color)
 
                 if shouldShowPoints {
@@ -154,14 +174,14 @@ struct TotalStatsView: View {
                         x: .value("日期", point.date),
                         y: .value("相对值", point.normalizedValue)
                     )
-                    .symbolSize(10)
+                    .symbolSize(pointSymbolSize)
                     .foregroundStyle(point.metric.color)
                 }
             }
             .chartXAxis {
                 AxisMarks(values: .stride(by: granularity.axisComponent, count: xAxisStrideCount)) { value in
                     AxisGridLine()
-                        .foregroundStyle(.quaternary.opacity(0.3))
+                        .foregroundStyle(.quaternary.opacity(0.2))
                     AxisValueLabel {
                         if let date = value.as(Date.self) {
                             Text(axisLabelText(for: date))
@@ -201,7 +221,7 @@ struct TotalStatsView: View {
                 HStack(spacing: 4) {
                     Circle()
                         .fill(metric.color)
-                        .frame(width: 5, height: 5)
+                        .frame(width: 6, height: 6)
                     Text(metric.title)
                         .font(.system(size: 8))
                         .foregroundStyle(.secondary)
