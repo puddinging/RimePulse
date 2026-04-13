@@ -104,27 +104,39 @@ struct TotalStatsView: View {
             let minValue = values.min() ?? 0
             let maxValue = values.max() ?? 0
             let span = maxValue - minValue
+            let displayValues = values.map { value in
+                span > 0 ? ((value - minValue) / span * 100) : 50
+            }
 
             for (index, record) in records.enumerated() {
-                let value = values[index]
-                let normalized = span > 0 ? ((value - minValue) / span * 100) : 50
                 points.append(TrendPoint(
                     id: "\(metric.id)-\(record.date.timeIntervalSince1970)",
-                    date: record.date,
+                    xIndex: index,
                     metric: metric,
-                    normalizedValue: normalized
+                    normalizedValue: displayValues[index]
                 ))
             }
         }
         return points
     }
 
-    private var xAxisStrideCount: Int {
-        max(1, Int(ceil(Double(aggregatedRecords.count) / 6)))
-    }
-
     private var shouldShowPoints: Bool {
         aggregatedRecords.count <= 90
+    }
+
+    private var chartXDomain: ClosedRange<Double> {
+        guard !aggregatedRecords.isEmpty else { return 0...1 }
+        if aggregatedRecords.count == 1 { return -0.5...0.5 }
+        return 0...Double(aggregatedRecords.count - 1)
+    }
+
+    private var chartPlotSidePadding: CGFloat {
+        10
+    }
+
+    private var xAxisPositions: [Double] {
+        guard !aggregatedRecords.isEmpty else { return [] }
+        return aggregatedRecords.indices.map(Double.init)
     }
 
     private var trendLineWidth: CGFloat {
@@ -143,8 +155,7 @@ struct TotalStatsView: View {
     }
 
     private var trendInterpolation: InterpolationMethod {
-        // monotone 避免过冲，在跨度较大时可保持平滑且更稳定。
-        aggregatedRecords.count >= 3 ? .monotone : .linear
+        .linear
     }
 
     var body: some View {
@@ -161,7 +172,7 @@ struct TotalStatsView: View {
 
             Chart(chartPoints) { point in
                 LineMark(
-                    x: .value("日期", point.date),
+                    x: .value("序号", Double(point.xIndex)),
                     y: .value("相对值", point.normalizedValue),
                     series: .value("指标", point.metric.title)
                 )
@@ -171,7 +182,7 @@ struct TotalStatsView: View {
 
                 if shouldShowPoints {
                     PointMark(
-                        x: .value("日期", point.date),
+                        x: .value("序号", Double(point.xIndex)),
                         y: .value("相对值", point.normalizedValue)
                     )
                     .symbolSize(pointSymbolSize)
@@ -179,12 +190,13 @@ struct TotalStatsView: View {
                 }
             }
             .chartXAxis {
-                AxisMarks(values: .stride(by: granularity.axisComponent, count: xAxisStrideCount)) { value in
+                AxisMarks(values: xAxisPositions) { value in
                     AxisGridLine()
                         .foregroundStyle(.quaternary.opacity(0.2))
-                    AxisValueLabel {
-                        if let date = value.as(Date.self) {
-                            Text(axisLabelText(for: date))
+                    AxisValueLabel(collisionResolution: .disabled) {
+                        if let raw = value.as(Double.self) {
+                            let index = Int(raw.rounded())
+                            Text(axisLabelText(for: index))
                                 .font(.system(size: 8, design: .monospaced))
                         }
                     }
@@ -192,6 +204,8 @@ struct TotalStatsView: View {
             }
             .chartYAxis(.hidden)
             .chartYScale(domain: 0...100)
+            .chartXScale(domain: chartXDomain)
+            .chartXScale(range: .plotDimension(startPadding: chartPlotSidePadding, endPadding: chartPlotSidePadding))
             .frame(height: 116)
             .padding(.horizontal, 10)
 
@@ -238,7 +252,9 @@ struct TotalStatsView: View {
             .frame(width: 0.5, height: 14)
     }
 
-    private func axisLabelText(for date: Date) -> String {
+    private func axisLabelText(for index: Int) -> String {
+        guard aggregatedRecords.indices.contains(index) else { return "" }
+        let date = aggregatedRecords[index].date
         switch granularity {
         case .day, .week:
             return Self.dayAxisFormatter.string(from: date)
@@ -296,7 +312,7 @@ private struct AggregatedRecord {
 
 private struct TrendPoint: Identifiable {
     let id: String
-    let date: Date
+    let xIndex: Int
     let metric: TrendMetric
     let normalizedValue: Double
 }
@@ -313,14 +329,11 @@ private enum TrendGranularity {
         let last = calendar.startOfDay(for: lastRaw)
 
         let dayCount = max(1, (calendar.dateComponents([.day], from: first, to: last).day ?? 0) + 1)
-        let weekCount = Int(ceil(Double(dayCount) / 7.0))
-        let monthCount = max(1, (calendar.dateComponents([.month], from: first, to: last).month ?? 0) + 1)
 
-        // 目标：保持视图可读，短时间自然铺满，长时间自动压缩。
-        let targetBucketCount = 60
-        if dayCount <= targetBucketCount { return .day }
-        if weekCount <= targetBucketCount { return .week }
-        if monthCount <= targetBucketCount { return .month }
+        // 按时间跨度切换粒度，避免点数变化导致粒度抖动
+        if dayCount <= 62 { return .day }      // 约 2 个月内按天
+        if dayCount <= 540 { return .week }    // 约 18 个月内按周
+        if dayCount <= 3650 { return .month }  // 约 10 年内按月
         return .year
     }
 

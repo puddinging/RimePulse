@@ -149,11 +149,17 @@ local function update_current_speed(now, char_count)
     local raw_cpm = math.floor(total * 60000 / span_for_calc)
     if stats.current_cpm <= 0 then
         stats.current_cpm = raw_cpm
+        if stats.current_cpm > stats.peak_cpm then
+            stats.peak_cpm = stats.current_cpm
+        end
         return
     end
 
     local smoothed = stats.current_cpm * (1 - CURRENT_EMA_ALPHA) + raw_cpm * CURRENT_EMA_ALPHA
     stats.current_cpm = math.floor(smoothed + 0.5)
+    if stats.current_cpm > stats.peak_cpm then
+        stats.peak_cpm = stats.current_cpm
+    end
 end
 
 local function update_peak(now, char_count)

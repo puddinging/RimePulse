@@ -4,12 +4,7 @@ struct TodayStatsView: View {
     let stats: TypingStats
 
     var body: some View {
-        VStack(spacing: 10) {
-            Text("今日")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
+        VStack(spacing: 9) {
             // 核心数据
             VStack(spacing: 1) {
                 Text("\(stats.chars)")

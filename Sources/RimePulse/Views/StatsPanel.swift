@@ -2,6 +2,8 @@ import ServiceManagement
 import SwiftUI
 
 struct StatsPanel: View {
+    static let fixedPanelWidth: CGFloat = 286
+
     let reader: StatsReader
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
@@ -72,6 +74,6 @@ struct StatsPanel: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
         }
-        .frame(width: 240)
+        .frame(width: Self.fixedPanelWidth)
     }
 }
