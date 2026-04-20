@@ -3,21 +3,18 @@ import SwiftUI
 
 struct TotalStatsView: View {
     let today: TypingStats?
-    let trendHistory: [TypingStats]
+    /// 预解析好的日记录（date 已是 Date），来自 StatsReader 缓存
+    let trendDaily: [DailyStats]
 
-    @State private var selectedMetric: MainMetric = .totalChars
+    @State private var selectedMetric: TrendMetric = .totalChars
     @State private var selectedRange: TimeRange = .month
+    @State private var hoverDate: Date? = nil
     @Namespace private var metricGlass
 
+    /// 聚合结果缓存：只在 (trendDaily / selectedRange) 变化时重算
+    @State private var aggregatedCache: AggregatedCache = .empty
+
     private static let calendar = Calendar.autoupdatingCurrent
-    private static let dayParser: DateFormatter = {
-        let f = DateFormatter()
-        f.calendar = Calendar(identifier: .gregorian)
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = .autoupdatingCurrent
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
     private static let dayAxisFormatter: DateFormatter = {
         let f = DateFormatter()
         f.calendar = .autoupdatingCurrent
@@ -45,67 +42,46 @@ struct TotalStatsView: View {
 
     // MARK: - Data pipeline
 
-    private var allRecords: [TypingStats] {
-        var records = trendHistory
-        if let today, !records.contains(where: { $0.date == today.date }) {
-            records.append(today)
-        }
-        return records
-    }
+    private var aggregatedRecords: [AggregatedRecord] { aggregatedCache.records }
+    private var granularity: TrendGranularity { aggregatedCache.granularity }
 
-    private var dailyRecords: [DatedStats] {
-        var latestByDate: [String: TypingStats] = [:]
-        for record in allRecords {
-            if let old = latestByDate[record.date] {
-                if record.updatedAt >= old.updatedAt {
-                    latestByDate[record.date] = record
-                }
-            } else {
-                latestByDate[record.date] = record
-            }
-        }
-
-        var result: [DatedStats] = []
-        for (dateString, stats) in latestByDate {
-            if let date = Self.dayParser.date(from: dateString) {
-                result.append(DatedStats(date: date, stats: stats))
-            }
-        }
-        result.sort { $0.date < $1.date }
-        return result
-    }
-
-    private var rangedRecords: [DatedStats] {
+    private func rebuildAggregatedCache() {
+        let sorted = trendDaily
+        let ranged: [DailyStats]
         switch selectedRange {
-        case .week:  return Array(dailyRecords.suffix(7))
-        case .month: return Array(dailyRecords.suffix(30))
-        case .all:   return dailyRecords
+        case .week:  ranged = Array(sorted.suffix(7))
+        case .month: ranged = Array(sorted.suffix(30))
+        case .all:   ranged = sorted
         }
-    }
 
-    private var granularity: TrendGranularity {
-        switch selectedRange {
-        case .week, .month:
-            return .day
-        case .all:
-            return TrendGranularity.auto(for: rangedRecords.map(\.date), calendar: Self.calendar)
+        let gran: TrendGranularity = switch selectedRange {
+        case .week, .month: .day
+        case .all:          TrendGranularity.auto(for: ranged.map(\.day), calendar: Self.calendar)
         }
-    }
 
-    private var aggregatedRecords: [AggregatedRecord] {
-        guard !rangedRecords.isEmpty else { return [] }
+        guard !ranged.isEmpty else {
+            aggregatedCache = AggregatedCache(records: [], granularity: gran)
+            return
+        }
 
         var buckets: [Date: AggregateAccumulator] = [:]
-        for record in rangedRecords {
-            let bucketDate = granularity.bucketStart(for: record.date, calendar: Self.calendar)
+        var bucketOrder: [Date] = []
+        for record in ranged {
+            let bucketDate = gran.bucketStart(for: record.day, calendar: Self.calendar)
+            if buckets[bucketDate] == nil { bucketOrder.append(bucketDate) }
             var acc = buckets[bucketDate] ?? AggregateAccumulator()
             acc.add(record.stats)
             buckets[bucketDate] = acc
         }
 
-        return buckets.keys.sorted().map { key in
-            buckets[key]!.makeRecord(at: key)
-        }
+        let records = bucketOrder.map { key in buckets[key]!.makeRecord(at: key) }
+        aggregatedCache = AggregatedCache(records: records, granularity: gran)
+    }
+
+    /// 聚合签名：只在实际影响聚合结果的值变化时为新
+    private var aggregationSignature: String {
+        guard let first = trendDaily.first, let last = trendDaily.last else { return "empty" }
+        return "\(trendDaily.count)|\(first.day.timeIntervalSince1970)|\(last.day.timeIntervalSince1970)|\(last.stats.updatedAt)|\(selectedRange.rawValue)"
     }
 
     // MARK: - Totals
@@ -113,30 +89,24 @@ struct TotalStatsView: View {
     private var totalChars: Int { aggregatedRecords.reduce(0) { $0 + $1.chars } }
     private var totalMinutes: Double { aggregatedRecords.reduce(0) { $0 + $1.activeMinutes } }
     private var totalCommits: Int { aggregatedRecords.reduce(0) { $0 + $1.commits } }
-    private var totalDays: Int { aggregatedRecords.count }
 
-    // MARK: - View
+    // MARK: - Body
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            header
-                .padding(.horizontal, 10)
-
-            metricTabs
-                .padding(.horizontal, 10)
-
-            mainChart
-                .padding(.horizontal, 10)
-
-            sparklineRows
-                .padding(.horizontal, 10)
-
-            totalsBar
-                .padding(.horizontal, 10)
+            header.padding(.horizontal, 10)
+            metricTabs.padding(.horizontal, 10)
+            mainChart.padding(.horizontal, 10)
+            sparklineRows.padding(.horizontal, 10)
+            totalsBar.padding(.horizontal, 10)
+        }
+        .onAppear { rebuildAggregatedCache() }
+        .onChange(of: aggregationSignature) { _, _ in
+            rebuildAggregatedCache()
         }
     }
 
-    // MARK: - Header (title + period segmented)
+    // MARK: - Header
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -167,10 +137,12 @@ struct TotalStatsView: View {
     private var metricTabs: some View {
         GlassEffectContainer(spacing: 0) {
             HStack(spacing: 2) {
-                ForEach(MainMetric.allCases) { metric in
+                ForEach(Array(TrendMetric.mainTabs.enumerated()), id: \.element) { index, metric in
                     MetricTabButton(
                         title: metric.title,
                         isOn: selectedMetric == metric,
+                        tint: metric.color,
+                        shortcut: KeyEquivalent(Character("\(index + 1)")),
                         glassID: metric,
                         namespace: metricGlass
                     ) {
@@ -179,9 +151,7 @@ struct TotalStatsView: View {
                 }
             }
             .padding(2)
-            .background(
-                Capsule().fill(.quaternary.opacity(0.4))
-            )
+            .background(Capsule().fill(.quaternary.opacity(0.4)))
         }
         .animation(.snappy(duration: 0.22), value: selectedMetric)
     }
@@ -196,10 +166,10 @@ struct TotalStatsView: View {
     }
 
     private var todayIndex: Int? {
-        guard let todayDate = today.flatMap({ Self.dayParser.date(from: $0.date) }) else {
-            return nil
-        }
-        let bucket = granularity.bucketStart(for: todayDate, calendar: Self.calendar)
+        guard let today,
+              let todayDay = trendDaily.last(where: { $0.stats.date == today.date })?.day
+        else { return nil }
+        let bucket = granularity.bucketStart(for: todayDay, calendar: Self.calendar)
         return aggregatedRecords.firstIndex(where: { $0.date == bucket })
     }
 
@@ -208,95 +178,182 @@ struct TotalStatsView: View {
         return max <= 0 ? 1 : max
     }
 
-    private var headlineValue: String {
-        guard let peakIndex else { return "—" }
-        let r = aggregatedRecords[peakIndex]
-        return selectedMetric.formattedValue(from: r)
+    private var hoveredRecord: AggregatedRecord? {
+        guard let hoverDate else { return nil }
+        return aggregatedRecords.min {
+            abs($0.date.timeIntervalSince(hoverDate)) < abs($1.date.timeIntervalSince(hoverDate))
+        }
+    }
+
+    private var displayRecord: AggregatedRecord? {
+        if let r = hoveredRecord { return r }
+        if let peakIndex { return aggregatedRecords[peakIndex] }
+        return nil
+    }
+
+    private var headlineNumeric: Double {
+        guard let r = displayRecord else { return 0 }
+        return selectedMetric.value(from: r)
+    }
+
+    private var headlineLabel: String {
+        hoveredRecord != nil ? dateLabel(for: hoveredRecord!.date) : "峰值"
     }
 
     private var mainChart: some View {
         VStack(alignment: .leading, spacing: 2) {
-            // Headline: peak value of the selected metric in selected range
             HStack(alignment: .lastTextBaseline, spacing: 0) {
                 Spacer()
-                Text("峰值 ")
+                Text("\(headlineLabel) ")
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
-                Text(headlineValue)
+                    .contentTransition(.opacity)
+                Text(formatHeadline(headlineNumeric))
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.primary)
+                    .contentTransition(.numericText(countsDown: false))
+                    .animation(.snappy(duration: 0.25), value: headlineNumeric)
                 Text(" \(selectedMetric.unit)")
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
             }
 
-            Chart {
-                ForEach(Array(aggregatedRecords.enumerated()), id: \.offset) { index, record in
-                    BarMark(
-                        x: .value("序号", index),
-                        y: .value("值", selectedMetric.value(from: record))
-                    )
-                    .foregroundStyle(barColor(for: index))
-                    .cornerRadius(2)
-                }
+            chartBody
+                .frame(height: 76)
+                .animation(.snappy(duration: 0.28), value: selectedMetric)
+                .animation(.snappy(duration: 0.28), value: selectedRange)
+        }
+    }
+
+    @ViewBuilder
+    private var chartBody: some View {
+        if aggregatedRecords.isEmpty {
+            ContentUnavailableView {
+                Label("暂无数据", systemImage: "chart.bar.xaxis")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
             }
-            .chartXAxis {
-                AxisMarks(values: xAxisLabelIndices) { value in
-                    AxisValueLabel(collisionResolution: .disabled) {
-                        if let raw = value.as(Int.self) {
-                            Text(axisLabelText(for: raw))
-                                .font(.system(size: 8, design: .monospaced))
-                                .foregroundStyle(.tertiary)
-                        }
+            .controlSize(.mini)
+        } else {
+            mainChartCore
+        }
+    }
+
+    private var mainChartCore: some View {
+        Chart {
+            ForEach(aggregatedRecords, id: \.date) { record in
+                BarMark(
+                    x: .value("日期", record.date, unit: .day),
+                    y: .value("值", selectedMetric.value(from: record)),
+                    width: .ratio(0.72)
+                )
+                .foregroundStyle(barStyle(for: record))
+                .cornerRadius(2)
+            }
+
+            if let peakIndex, hoverDate == nil {
+                let peak = aggregatedRecords[peakIndex]
+                RuleMark(x: .value("peak", peak.date, unit: .day))
+                    .foregroundStyle(selectedMetric.color.opacity(0.30))
+                    .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [2, 2]))
+            }
+
+            if let hovered = hoveredRecord {
+                RuleMark(x: .value("hover", hovered.date, unit: .day))
+                    .foregroundStyle(Color.primary.opacity(0.35))
+                    .lineStyle(StrokeStyle(lineWidth: 0.5))
+                    .annotation(
+                        position: .top,
+                        spacing: 4,
+                        overflowResolution: .init(x: .fit(to: .chart), y: .disabled)
+                    ) {
+                        hoverBubble(for: hovered)
+                    }
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: xAxisDates) { value in
+                AxisValueLabel(collisionResolution: .disabled) {
+                    if let date = value.as(Date.self) {
+                        Text(dateLabel(for: date))
+                            .font(.system(size: 8, design: .monospaced))
+                            .foregroundStyle(.tertiary)
                     }
                 }
             }
-            .chartYAxis(.hidden)
-            .chartYScale(domain: 0...(mainChartMaxValue * 1.10))
-            .frame(height: 72)
         }
+        .chartYAxis(.hidden)
+        .chartYScale(domain: 0...(mainChartMaxValue * 1.10))
+        .chartXSelection(value: $hoverDate)
     }
 
-    private func barColor(for index: Int) -> Color {
-        let isPeak = index == peakIndex
-        let isToday = index == todayIndex
+    private func barStyle(for record: AggregatedRecord) -> Color {
         let accent = selectedMetric.color
-        if isPeak { return accent }
-        if isToday { return accent.opacity(0.55) }
+        if let hovered = hoveredRecord {
+            return record.date == hovered.date ? accent : accent.opacity(0.22)
+        }
+        if let peakIndex, aggregatedRecords[peakIndex].date == record.date {
+            return accent
+        }
+        if let todayIndex, aggregatedRecords[todayIndex].date == record.date {
+            return accent.opacity(0.55)
+        }
         return Color.primary.opacity(0.18)
     }
 
-    private var xAxisLabelIndices: [Int] {
-        let n = aggregatedRecords.count
-        guard n > 0 else { return [] }
-        if n == 1 { return [0] }
-        if n == 2 { return [0, 1] }
-        return [0, n / 2, n - 1]
+    private func hoverBubble(for record: AggregatedRecord) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(selectedMetric.color)
+                .frame(width: 5, height: 5)
+            Text(selectedMetric.formattedValue(from: record))
+                .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.primary)
+            Text(selectedMetric.unit)
+                .font(.system(size: 8))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .glassEffect(.regular, in: Capsule())
     }
 
-    private func axisLabelText(for index: Int) -> String {
-        guard aggregatedRecords.indices.contains(index) else { return "" }
-        let date = aggregatedRecords[index].date
+    private var xAxisDates: [Date] {
+        let n = aggregatedRecords.count
+        guard n > 0 else { return [] }
+        if n == 1 { return [aggregatedRecords[0].date] }
+        if n == 2 { return aggregatedRecords.map(\.date) }
+        return [
+            aggregatedRecords[0].date,
+            aggregatedRecords[n / 2].date,
+            aggregatedRecords[n - 1].date
+        ]
+    }
+
+    private func dateLabel(for date: Date) -> String {
         switch granularity {
-        case .day, .week:
-            return Self.dayAxisFormatter.string(from: date)
-        case .month:
-            return Self.monthAxisFormatter.string(from: date)
-        case .year:
-            return Self.yearAxisFormatter.string(from: date)
+        case .day, .week: return Self.dayAxisFormatter.string(from: date)
+        case .month:      return Self.monthAxisFormatter.string(from: date)
+        case .year:       return Self.yearAxisFormatter.string(from: date)
         }
     }
 
-    // MARK: - Small multiples
+    private func formatHeadline(_ v: Double) -> String {
+        switch selectedMetric {
+        case .charsPerMinute: return "\(Int(v.rounded()))"
+        case .activeMinutes:  return String(format: "%.1f", v)
+        default:              return compactNumber(Int(v.rounded()))
+        }
+    }
+
+    // MARK: - Sparklines
 
     private var sparklineRows: some View {
         VStack(spacing: 2) {
-            ForEach(SparkMetric.allCases) { metric in
-                SparklineRow(
-                    metric: metric,
-                    records: aggregatedRecords
-                )
+            ForEach(TrendMetric.sparkRows) { metric in
+                SparklineRow(metric: metric, records: aggregatedRecords)
             }
         }
         .padding(.top, 4)
@@ -325,359 +382,5 @@ struct TotalStatsView: View {
         Rectangle()
             .fill(Color.primary.opacity(0.10))
             .frame(width: 0.5, height: 16)
-    }
-}
-
-// MARK: - Total cell
-
-private struct TotalCell: View {
-    let label: String
-    let value: String
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Text(label)
-                .font(.system(size: 8.5))
-                .tracking(0.6)
-                .foregroundStyle(.tertiary)
-                .textCase(.uppercase)
-            Text(value)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.primary)
-        }
-        .frame(maxWidth: .infinity, alignment: .center)
-    }
-}
-
-// MARK: - Period segmented (liquid glass pill)
-
-private struct PeriodSegmented: View {
-    @Binding var selected: TimeRange
-    @Namespace private var glass
-
-    var body: some View {
-        GlassEffectContainer(spacing: 0) {
-            HStack(spacing: 2) {
-                ForEach(TimeRange.allCases) { range in
-                    segmentButton(for: range)
-                }
-            }
-            .padding(2)
-            .background(
-                Capsule().fill(.quaternary.opacity(0.4))
-            )
-        }
-        .animation(.snappy(duration: 0.22), value: selected)
-    }
-
-    private func segmentButton(for range: TimeRange) -> some View {
-        let isOn = selected == range
-        return Button {
-            selected = range
-        } label: {
-            Text(range.label)
-                .font(.system(size: 9.5, weight: isOn ? .semibold : .regular))
-                .tracking(0.5)
-                .foregroundStyle(isOn ? .primary : .secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .glassEffect(
-            isOn ? Glass.regular.interactive() : Glass.identity,
-            in: Capsule()
-        )
-        .glassEffectID(range, in: glass)
-    }
-}
-
-// MARK: - Metric tab button
-
-private struct MetricTabButton: View {
-    let title: String
-    let isOn: Bool
-    let glassID: MainMetric
-    let namespace: Namespace.ID
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 10, weight: isOn ? .semibold : .regular))
-                .tracking(0.2)
-                .foregroundStyle(isOn ? .primary : .secondary)
-                .padding(.vertical, 4)
-                .frame(maxWidth: .infinity)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .glassEffect(
-            isOn ? Glass.regular.interactive() : Glass.identity,
-            in: Capsule()
-        )
-        .glassEffectID(glassID, in: namespace)
-    }
-}
-
-// MARK: - Sparkline row
-
-private struct SparklineRow: View {
-    let metric: SparkMetric
-    let records: [AggregatedRecord]
-
-    private var values: [Double] { records.map { metric.value(from: $0) } }
-    private var totalValue: String { metric.totalFormatted(from: records) }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(metric.color)
-                .frame(width: 6, height: 6)
-
-            Text(metric.title)
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .frame(width: 30, alignment: .leading)
-
-            sparkline
-                .frame(height: 16)
-
-            Text(totalValue)
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.primary)
-                .frame(width: 62, alignment: .trailing)
-        }
-        .frame(height: 18)
-    }
-
-    private var sparkline: some View {
-        GeometryReader { geo in
-            let width = geo.size.width
-            let height = geo.size.height
-            let maxV = values.max() ?? 0
-            let minV = values.min() ?? 0
-            let span = max(maxV - minV, 0.0001)
-
-            Path { path in
-                for (i, v) in values.enumerated() {
-                    let x = values.count <= 1 ? width / 2 :
-                        width * CGFloat(i) / CGFloat(values.count - 1)
-                    let normalized = maxV - minV == 0 ? 0.5 : (v - minV) / span
-                    let y = height - (CGFloat(normalized) * (height - 2)) - 1
-                    if i == 0 {
-                        path.move(to: CGPoint(x: x, y: y))
-                    } else {
-                        path.addLine(to: CGPoint(x: x, y: y))
-                    }
-                }
-            }
-            .stroke(metric.color, style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round))
-        }
-    }
-}
-
-// MARK: - Enums
-
-enum TimeRange: String, CaseIterable, Identifiable {
-    case week = "7D"
-    case month = "30D"
-    case all = "ALL"
-
-    var id: Self { self }
-    var label: String { rawValue }
-}
-
-enum MainMetric: Hashable, CaseIterable, Identifiable {
-    case totalChars, charsCjk, wordsEn, charsPerMinute, commits
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .totalChars:     return "字数"
-        case .charsCjk:       return "中文"
-        case .wordsEn:        return "英文"
-        case .charsPerMinute: return "速度"
-        case .commits:        return "提交"
-        }
-    }
-
-    var unit: String {
-        switch self {
-        case .totalChars, .charsCjk: return "字"
-        case .wordsEn:    return "词"
-        case .charsPerMinute: return "字/分"
-        case .commits:    return "次"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .totalChars:     return .primary
-        case .charsCjk:       return MetricColors.charsCjk
-        case .wordsEn:        return MetricColors.wordsEn
-        case .charsPerMinute: return MetricColors.charsPerMinute
-        case .commits:        return MetricColors.commits
-        }
-    }
-
-    func value(from r: AggregatedRecord) -> Double {
-        switch self {
-        case .totalChars:     return Double(r.chars)
-        case .charsCjk:       return Double(r.charsCjk)
-        case .wordsEn:        return Double(r.wordsEn)
-        case .charsPerMinute: return Double(r.charsPerMinute)
-        case .commits:        return Double(r.commits)
-        }
-    }
-
-    func formattedValue(from r: AggregatedRecord) -> String {
-        let v = value(from: r)
-        switch self {
-        case .charsPerMinute: return "\(Int(v))"
-        default:              return compactNumber(Int(v))
-        }
-    }
-}
-
-enum SparkMetric: Hashable, CaseIterable, Identifiable {
-    case charsCjk, wordsEn, charsPerMinute, activeMinutes, commits
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .charsCjk:       return "中文"
-        case .wordsEn:        return "英文"
-        case .charsPerMinute: return "速度"
-        case .activeMinutes:  return "时长"
-        case .commits:        return "提交"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .charsCjk:       return MetricColors.charsCjk
-        case .wordsEn:        return MetricColors.wordsEn
-        case .charsPerMinute: return MetricColors.charsPerMinute
-        case .activeMinutes:  return MetricColors.activeMinutes
-        case .commits:        return MetricColors.commits
-        }
-    }
-
-    func value(from r: AggregatedRecord) -> Double {
-        switch self {
-        case .charsCjk:       return Double(r.charsCjk)
-        case .wordsEn:        return Double(r.wordsEn)
-        case .charsPerMinute: return Double(r.charsPerMinute)
-        case .activeMinutes:  return r.activeMinutes
-        case .commits:        return Double(r.commits)
-        }
-    }
-
-    func totalFormatted(from records: [AggregatedRecord]) -> String {
-        switch self {
-        case .charsCjk:
-            return compactNumber(records.reduce(0) { $0 + $1.charsCjk })
-        case .wordsEn:
-            return compactNumber(records.reduce(0) { $0 + $1.wordsEn })
-        case .charsPerMinute:
-            // 展示区间内的平均速度
-            let ms = records.map { $0.charsPerMinute }.filter { $0 > 0 }
-            guard !ms.isEmpty else { return "0" }
-            let avg = ms.reduce(0, +) / ms.count
-            return "\(avg)/分"
-        case .activeMinutes:
-            return formattedDuration(records.reduce(0) { $0 + $1.activeMinutes })
-        case .commits:
-            return compactNumber(records.reduce(0) { $0 + $1.commits })
-        }
-    }
-}
-
-// MARK: - Aggregation types (internal)
-
-private struct DatedStats {
-    let date: Date
-    let stats: TypingStats
-}
-
-struct AggregatedRecord {
-    let date: Date
-    let chars: Int
-    let charsCjk: Int
-    let wordsEn: Int
-    let activeMinutes: Double
-    let commits: Int
-    let charsPerMinute: Int
-}
-
-private struct AggregateAccumulator {
-    var chars: Int = 0
-    var charsCjk: Int = 0
-    var wordsEn: Int = 0
-    var activeMinutes: Double = 0
-    var commits: Int = 0
-
-    mutating func add(_ stats: TypingStats) {
-        chars += stats.chars
-        charsCjk += stats.charsCjk
-        wordsEn += stats.wordsEn
-        activeMinutes += stats.activeMinutes
-        commits += stats.commits
-    }
-
-    func makeRecord(at date: Date) -> AggregatedRecord {
-        let cpm = activeMinutes > 0 ? Int((Double(chars) / activeMinutes).rounded(.down)) : 0
-        return AggregatedRecord(
-            date: date,
-            chars: chars,
-            charsCjk: charsCjk,
-            wordsEn: wordsEn,
-            activeMinutes: activeMinutes,
-            commits: commits,
-            charsPerMinute: cpm
-        )
-    }
-}
-
-enum TrendGranularity {
-    case day, week, month, year
-
-    static func auto(for dates: [Date], calendar: Calendar) -> Self {
-        guard let firstRaw = dates.first, let lastRaw = dates.last else { return .day }
-        let first = calendar.startOfDay(for: firstRaw)
-        let last = calendar.startOfDay(for: lastRaw)
-        let dayCount = max(1, (calendar.dateComponents([.day], from: first, to: last).day ?? 0) + 1)
-
-        if dayCount <= 62 { return .day }
-        if dayCount <= 540 { return .week }
-        if dayCount <= 3650 { return .month }
-        return .year
-    }
-
-    var label: String {
-        switch self {
-        case .day:   return "天"
-        case .week:  return "周"
-        case .month: return "月"
-        case .year:  return "年"
-        }
-    }
-
-    func bucketStart(for date: Date, calendar: Calendar) -> Date {
-        switch self {
-        case .day:
-            return calendar.startOfDay(for: date)
-        case .week:
-            return calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? calendar.startOfDay(for: date)
-        case .month:
-            return calendar.date(from: calendar.dateComponents([.year, .month], from: date)) ?? calendar.startOfDay(for: date)
-        case .year:
-            return calendar.date(from: calendar.dateComponents([.year], from: date)) ?? calendar.startOfDay(for: date)
-        }
     }
 }

@@ -11,6 +11,6 @@ struct StatusBarLabel: View {
     var body: some View {
         Text(Self.menuText(stats: stats))
             .font(.system(size: 11, weight: .semibold, design: .monospaced))
-        .monospacedDigit()
+            .monospacedDigit()
     }
 }

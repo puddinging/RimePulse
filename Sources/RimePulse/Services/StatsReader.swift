@@ -2,12 +2,23 @@ import Foundation
 import Observation
 import os.log
 
+/// A parsed daily record with its Date pre-resolved.
+/// Used by views to avoid re-parsing date strings on every body evaluation.
+struct DailyStats: Sendable, Identifiable {
+    let day: Date
+    let stats: TypingStats
+    var id: String { stats.date }
+}
+
 @Observable
 @MainActor
 final class StatsReader {
     private(set) var today: TypingStats?
     private(set) var history: [TypingStats] = []
     private(set) var trendHistory: [TypingStats] = []
+    /// Sorted by day ascending; today's record (if any) is merged in-place.
+    /// Consumers get pre-parsed Date + stats and should not need to re-parse.
+    private(set) var trendDaily: [DailyStats] = []
 
     private var fileSource: DispatchSourceFileSystemObject?
     private var dirSource: DispatchSourceFileSystemObject?
@@ -20,6 +31,16 @@ final class StatsReader {
     private let dataDir: String
     private let todayPaths: [String]
     private let historyPaths: [String]
+
+    // 历史 JSONL 行在写入后不变，缓存解析结果避免每次 today 更新全量重解析
+    private var historicalByDate: [String: DailyStats] = [:]
+    private var historySignature: HistorySignature?
+
+    private struct HistorySignature: Equatable {
+        let path: String
+        let size: Int64
+        let mtime: Date?
+    }
 
     private static let todayFiles = ["typing_stats_today.txt", "typing_stats_today.json"]
     private static let historyFiles = ["typing_stats.txt", "typing_stats.jsonl"]
@@ -263,51 +284,92 @@ final class StatsReader {
         }
     }
 
-    private func loadHistory() {
-        guard let path = firstExistingPath(in: historyPaths),
-              let data = FileManager.default.contents(atPath: path),
-              let content = String(data: data, encoding: .utf8) else {
-            if let staleToday = staleTodayForHistory {
-                history = [staleToday]
-                trendHistory = [staleToday]
-            } else {
-                history = []
-                trendHistory = []
-            }
+    /// 确保 JSONL 历史解析结果是最新的；文件没变时直接复用缓存。
+    /// 只有历史文件 size / mtime 变化才会触发全量 re-parse。
+    private func refreshHistoryCacheIfNeeded() {
+        guard let path = firstExistingPath(in: historyPaths) else {
+            // 文件不存在 — 清空历史缓存
+            historicalByDate = [:]
+            historySignature = nil
             return
         }
 
-        let decoder = JSONDecoder()
-        var latestByDate: [String: TypingStats] = [:]
+        let attrs = try? FileManager.default.attributesOfItem(atPath: path)
+        let size = (attrs?[.size] as? Int64) ?? -1
+        let mtime = attrs?[.modificationDate] as? Date
+        let sig = HistorySignature(path: path, size: size, mtime: mtime)
 
-        func mergeRecord(_ record: TypingStats) {
-            if let old = latestByDate[record.date] {
-                if record.updatedAt >= old.updatedAt {
-                    latestByDate[record.date] = record
-                }
-            } else {
-                latestByDate[record.date] = record
-            }
+        if sig == historySignature {
+            return                       // 未变 — 复用缓存
         }
 
+        guard let data = FileManager.default.contents(atPath: path),
+              let content = String(data: data, encoding: .utf8) else {
+            return                       // 读取失败 — 保留旧缓存
+        }
+
+        let decoder = JSONDecoder()
+        var latest: [String: DailyStats] = [:]
         for (index, line) in content.components(separatedBy: "\n").enumerated() where !line.isEmpty {
             guard let lineData = line.data(using: .utf8) else { continue }
             do {
-                mergeRecord(try decoder.decode(TypingStats.self, from: lineData))
+                let record = try decoder.decode(TypingStats.self, from: lineData)
+                guard let day = Self.dayFormatter.date(from: record.date) else { continue }
+                if let old = latest[record.date], record.updatedAt < old.stats.updatedAt {
+                    continue
+                }
+                latest[record.date] = DailyStats(day: day, stats: record)
             } catch {
                 Self.logger.error("Failed to decode \(Self.filename(from: path)) line \(index + 1): \(error.localizedDescription)")
             }
         }
 
-        if let staleToday = staleTodayForHistory {
-            mergeRecord(staleToday)
+        historicalByDate = latest
+        historySignature = sig
+    }
+
+    /// 合并历史缓存 + 当前 today(或 staleToday)，刷新对外发布的数组。
+    /// 今天数据之外的历史项是 immutable 的，所以这是一次廉价的合并 + 排序。
+    private func rebuildPublished() {
+        var merged = historicalByDate
+
+        if let stale = staleTodayForHistory,
+           let day = Self.dayFormatter.date(from: stale.date) {
+            merged[stale.date] = mergePreferNewer(
+                DailyStats(day: day, stats: stale), into: merged[stale.date]
+            )
         }
 
-        var result = Array(latestByDate.values)
-        result.sort { $0.date < $1.date }
+        if let today = self.today,
+           let day = Self.dayFormatter.date(from: today.date) {
+            merged[today.date] = mergePreferNewer(
+                DailyStats(day: day, stats: today), into: merged[today.date]
+            )
+        }
 
-        trendHistory = result
+        let sorted = merged.values.sorted { $0.day < $1.day }
+        trendDaily = sorted
+        trendHistory = sorted.map(\.stats)
         // 最近 7 天，按日期倒序
-        history = Array(result.suffix(7).reversed())
+        history = Array(trendHistory.suffix(7).reversed())
+    }
+
+    private func mergePreferNewer(_ incoming: DailyStats, into existing: DailyStats?) -> DailyStats {
+        guard let existing else { return incoming }
+        return incoming.stats.updatedAt >= existing.stats.updatedAt ? incoming : existing
+    }
+
+    private func loadHistory() {
+        refreshHistoryCacheIfNeeded()
+        rebuildPublished()
+
+        // JSONL 缺失且只有内存里的 staleToday 时：保证输出非空
+        if historicalByDate.isEmpty,
+           staleTodayForHistory == nil,
+           today == nil {
+            trendDaily = []
+            trendHistory = []
+            history = []
+        }
     }
 }

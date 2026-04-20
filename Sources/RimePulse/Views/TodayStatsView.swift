@@ -11,6 +11,8 @@ struct TodayStatsView: View {
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.primary)
+                    .contentTransition(.numericText(countsDown: false))
+                    .animation(.snappy(duration: 0.3), value: stats.chars)
 
                 HStack(spacing: 8) {
                     CategoryLabel(
