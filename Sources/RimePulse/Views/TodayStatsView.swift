@@ -7,37 +7,75 @@ struct TodayStatsView: View {
         VStack(spacing: 9) {
             // 核心数据
             VStack(spacing: 1) {
-                Text("\(stats.chars)")
+                Text(compactNumber(stats.chars))
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                     .monospacedDigit()
-                HStack(spacing: 4) {
-                    Text("中文 \(stats.charsCjk)")
-                        .foregroundStyle(MetricColors.charsCjk)
+                    .foregroundStyle(.primary)
+
+                HStack(spacing: 8) {
+                    CategoryLabel(
+                        color: MetricColors.charsCjk,
+                        title: "中文",
+                        value: compactNumber(stats.charsCjk)
+                    )
                     Text("·")
-                        .foregroundStyle(.secondary)
-                    Text("英文 \(stats.wordsEn)")
-                        .foregroundStyle(MetricColors.wordsEn)
+                        .foregroundStyle(.tertiary)
+                    CategoryLabel(
+                        color: MetricColors.wordsEn,
+                        title: "英文",
+                        value: compactNumber(stats.wordsEn)
+                    )
                 }
                 .font(.system(size: 10))
+                .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 2)
 
-            // 指标卡片
-            SpeedMetricCard(current: stats.liveCurrentCpm, peak: stats.peakCpm, color: MetricColors.charsPerMinute)
+            // 指标卡片 — tint 跟随对应 metric 颜色
+            SpeedMetricCard(
+                current: stats.liveCurrentCpm,
+                peak: stats.peakCpm,
+                tint: MetricColors.charsPerMinute
+            )
             HStack(spacing: 6) {
-                MetricCard(value: String(format: "%.1f", stats.activeMinutes), unit: "分钟", label: "活跃时长", color: MetricColors.activeMinutes)
-                MetricCard(value: "\(stats.commits)", unit: "次", label: "提交", color: MetricColors.commits)
+                MetricCard(
+                    value: String(format: "%.1f", stats.activeMinutes),
+                    unit: "分钟",
+                    label: "活跃时长",
+                    tint: MetricColors.activeMinutes
+                )
+                MetricCard(
+                    value: compactNumber(stats.commits),
+                    unit: "次",
+                    label: "提交",
+                    tint: MetricColors.commits
+                )
             }
         }
         .padding(10)
     }
 }
 
+private struct CategoryLabel: View {
+    let color: Color
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(color)
+                .frame(width: 5, height: 5)
+            Text("\(title) \(value)")
+        }
+    }
+}
+
 private struct SpeedMetricCard: View {
     let current: Int
     let peak: Int
-    let color: Color
+    let tint: Color
 
     var body: some View {
         VStack(spacing: 1) {
@@ -47,7 +85,7 @@ private struct SpeedMetricCard: View {
                     .monospacedDigit()
                 Text("/")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
                 Text("\(peak)")
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .monospacedDigit()
@@ -55,13 +93,13 @@ private struct SpeedMetricCard: View {
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
             }
-            Text("当前/峰值")
+            Text("当前 / 峰值")
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
-        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+        .background(tintedCardBackground(tint))
     }
 }
 
@@ -69,7 +107,7 @@ private struct MetricCard: View {
     let value: String
     let unit: String
     let label: String
-    let color: Color
+    let tint: Color
 
     var body: some View {
         VStack(spacing: 1) {
@@ -87,6 +125,16 @@ private struct MetricCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
-        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+        .background(tintedCardBackground(tint))
     }
+}
+
+@ViewBuilder
+private func tintedCardBackground(_ tint: Color) -> some View {
+    RoundedRectangle(cornerRadius: 6)
+        .fill(tint.opacity(0.10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(tint.opacity(0.22), lineWidth: 0.5)
+        )
 }

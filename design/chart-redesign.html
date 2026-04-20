@@ -1,0 +1,1100 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8" />
+<title>RimePulse · 图表重设计</title>
+<style>
+  /* ————————————————————————————————————— */
+  /* 页面 chrome：保持原中性灰，不套莫兰迪       */
+  /* ————————————————————————————————————— */
+  :root {
+    --page-bg: #1a1a1c;
+    --page-fg: #f2f2f3;
+    --page-fg-dim: #9a9aa0;
+    --page-fg-muted: #6b6b70;
+    --page-line: rgba(255, 255, 255, 0.08);
+    --page-line-strong: rgba(255, 255, 255, 0.14);
+    --page-chip: rgba(255, 255, 255, 0.04);
+    --page-chip-active: rgba(255, 255, 255, 0.10);
+    --page-accent: #00a5f7;
+    --page-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+    --notes-body: #c6c6cc;
+
+    /* Digital palette — 沿用主题蓝的清爽调性 */
+    --m-accent:   #00a5f7;  /* 天蓝 sky       200° */
+    --m-cjk:      #34d399;  /* 翡翠 emerald   150° */
+    --m-en:       #a78bfa;  /* 紫罗兰 violet  265° */
+    --m-mins:     #f472b6;  /* 玫瑰粉 rose    330° */
+    --m-commits:  #facc15;  /* 琥珀黄 amber    50° */
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme]) {
+      --page-bg: #e9e9ec;
+      --page-fg: #121214;
+      --page-fg-dim: #5a5a60;
+      --page-fg-muted: #8e8e94;
+      --page-line: rgba(0, 0, 0, 0.08);
+      --page-line-strong: rgba(0, 0, 0, 0.14);
+      --page-chip: rgba(0, 0, 0, 0.035);
+      --page-chip-active: rgba(0, 0, 0, 0.08);
+      --page-accent: #00a5f7;
+      --page-shadow: 0 10px 28px rgba(20, 20, 30, 0.12);
+      --notes-body: #3a3a42;
+    }
+  }
+
+  :root[data-theme="light"] {
+    --page-bg: #e9e9ec;
+    --page-fg: #121214;
+    --page-fg-dim: #5a5a60;
+    --page-fg-muted: #8e8e94;
+    --page-line: rgba(0, 0, 0, 0.08);
+    --page-line-strong: rgba(0, 0, 0, 0.14);
+    --page-chip: rgba(0, 0, 0, 0.035);
+    --page-chip-active: rgba(0, 0, 0, 0.08);
+    --page-accent: #00a5f7;
+    --page-shadow: 0 10px 28px rgba(20, 20, 30, 0.12);
+    --notes-body: #3a3a42;
+  }
+
+  :root[data-theme="dark"] {
+    --page-bg: #1a1a1c;
+    --page-fg: #f2f2f3;
+    --page-fg-dim: #9a9aa0;
+    --page-fg-muted: #6b6b70;
+    --page-line: rgba(255, 255, 255, 0.08);
+    --page-line-strong: rgba(255, 255, 255, 0.14);
+    --page-chip: rgba(255, 255, 255, 0.04);
+    --page-chip-active: rgba(255, 255, 255, 0.10);
+    --page-accent: #00a5f7;
+    --page-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+    --notes-body: #c6c6cc;
+  }
+
+  /* ————————————————————————————————————— */
+  /* 莫兰迪：仅限 popover 作用域                */
+  /* ————————————————————————————————————— */
+  /*
+    Popover = macOS 默认玻璃材质（无色调）
+    文字 / 背景 / hairline 全部中性
+    Morandi 冷调仅出现在图表图元：--accent / --cjk / --en / --mins / --commits
+  */
+  .popover {
+    /* 深色 — 类 NSVisualEffectView popover */
+    --bg-panel: rgba(28, 28, 30, 0.72);
+    --bg-panel-2: rgba(58, 58, 60, 0.60);
+    --bg-chip: rgba(255, 255, 255, 0.045);
+    --bg-chip-active: rgba(255, 255, 255, 0.10);
+    --hairline: rgba(255, 255, 255, 0.08);
+    --hairline-strong: rgba(255, 255, 255, 0.15);
+    --text-primary: #f2f2f4;
+    --text-secondary: #9a9aa0;
+    --text-tertiary: #67676d;
+    --shadow: 0 22px 50px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255,255,255,0.04) inset;
+
+    /* Digital palette — 图表图元专用（深色） */
+    --accent: #00a5f7;                   /* 天蓝 */
+    --accent-dim: rgba(0, 165, 247, 0.22);
+    --cjk: #34d399;                      /* 翡翠绿 */
+    --en: #a78bfa;                       /* 紫罗兰 */
+    --mins: #f472b6;                     /* 玫瑰粉 */
+    --commits: #facc15;                  /* 琥珀黄 */
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme]) .popover {
+      --bg-panel: rgba(246, 246, 248, 0.72);
+      --bg-panel-2: rgba(230, 230, 234, 0.70);
+      --bg-chip: rgba(0, 0, 0, 0.04);
+      --bg-chip-active: rgba(0, 0, 0, 0.08);
+      --hairline: rgba(0, 0, 0, 0.08);
+      --hairline-strong: rgba(0, 0, 0, 0.14);
+      --text-primary: #0f0f12;
+      --text-secondary: #5a5a60;
+      --text-tertiary: #8e8e94;
+      --shadow: 0 14px 36px rgba(40, 40, 60, 0.18), 0 0 0 0.5px rgba(0,0,0,0.06);
+
+      --accent: #0284c7;                 /* 深天蓝 */
+      --accent-dim: rgba(2, 132, 199, 0.16);
+      --cjk: #059669;                    /* 深翡翠 */
+      --en: #7c3aed;                     /* 深紫罗兰 */
+      --mins: #db2777;                   /* 深玫瑰 */
+      --commits: #ca8a04;                /* 深琥珀 */
+    }
+  }
+
+  :root[data-theme="light"] .popover {
+    --bg-panel: rgba(246, 246, 248, 0.72);
+    --bg-panel-2: rgba(230, 230, 234, 0.70);
+    --bg-chip: rgba(0, 0, 0, 0.04);
+    --bg-chip-active: rgba(0, 0, 0, 0.08);
+    --hairline: rgba(0, 0, 0, 0.08);
+    --hairline-strong: rgba(0, 0, 0, 0.14);
+    --text-primary: #0f0f12;
+    --text-secondary: #5a5a60;
+    --text-tertiary: #8e8e94;
+    --shadow: 0 14px 36px rgba(40, 40, 60, 0.18), 0 0 0 0.5px rgba(0,0,0,0.06);
+    --accent: #0284c7;
+    --accent-dim: rgba(2, 132, 199, 0.16);
+    --cjk: #059669;
+    --en: #7c3aed;
+    --mins: #db2777;
+    --commits: #ca8a04;
+  }
+
+  :root[data-theme="dark"] .popover {
+    --bg-panel: rgba(28, 28, 30, 0.72);
+    --bg-panel-2: rgba(58, 58, 60, 0.60);
+    --bg-chip: rgba(255, 255, 255, 0.045);
+    --bg-chip-active: rgba(255, 255, 255, 0.10);
+    --hairline: rgba(255, 255, 255, 0.08);
+    --hairline-strong: rgba(255, 255, 255, 0.15);
+    --text-primary: #f2f2f4;
+    --text-secondary: #9a9aa0;
+    --text-tertiary: #67676d;
+    --shadow: 0 22px 50px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255,255,255,0.04) inset;
+    --accent: #00a5f7;
+    --accent-dim: rgba(0, 165, 247, 0.22);
+    --cjk: #34d399;
+    --en: #a78bfa;
+    --mins: #f472b6;
+    --commits: #facc15;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    color: var(--page-fg);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+    font-size: 12px;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    background:
+      radial-gradient(900px 600px at 18% 22%, rgba(130, 170, 190, 0.25), transparent 60%),
+      radial-gradient(700px 500px at 75% 80%, rgba(170, 140, 190, 0.20), transparent 60%),
+      radial-gradient(500px 400px at 45% 55%, rgba(160, 190, 170, 0.18), transparent 70%),
+      var(--page-bg);
+  }
+
+  .stage {
+    display: flex;
+    gap: 48px;
+    align-items: flex-start;
+    padding: 48px;
+    flex-wrap: wrap;
+  }
+
+  .stage-label {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--page-fg-muted);
+    margin-bottom: 12px;
+    font-weight: 500;
+  }
+
+  /* ——————————————————————————— */
+  /* popover 容器 — 等比 286pt      */
+  /* ——————————————————————————— */
+  .popover {
+    width: 286px;
+    background: var(--bg-panel);
+    backdrop-filter: blur(36px) saturate(180%);
+    -webkit-backdrop-filter: blur(36px) saturate(180%);
+    border: 0.5px solid var(--hairline-strong);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  /* ——— 今日卡片（保持现状摘要） ——— */
+  .today {
+    padding: 14px 12px 10px;
+    text-align: center;
+  }
+  .today__big {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .today__split {
+    font-size: 10.5px;
+    margin-top: 2px;
+  }
+  .today__split { color: var(--text-secondary); }
+  .today__split .cjk-dot, .today__split .en-dot {
+    display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+    vertical-align: 1px; margin-right: 3px;
+  }
+  .today__split .cjk-dot { background: var(--cjk); }
+  .today__split .en-dot { background: var(--en); }
+  .today__split .dot { color: var(--text-tertiary); margin: 0 6px; }
+
+  .metric-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 0 10px 8px;
+  }
+  .metric-card {
+    background: var(--bg-chip);
+    border-radius: 7px;
+    padding: 8px 10px;
+    text-align: center;
+    border: 1px solid var(--hairline);
+  }
+  .metric-card .v {
+    font-size: 15px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric-card .v small {
+    font-size: 9px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-left: 1px;
+  }
+  .metric-card .l {
+    font-size: 9px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+  }
+
+  .speed-card {
+    grid-column: 1 / -1;
+    background: var(--bg-chip);
+    border: 1px solid var(--hairline);
+    border-radius: 7px;
+    padding: 8px 10px;
+    text-align: center;
+  }
+  .speed-card .nums {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .speed-card .n {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .speed-card .sep { color: var(--text-secondary); font-size: 12px; }
+  .speed-card .u { font-size: 9px; color: var(--text-secondary); }
+  .speed-card .l { font-size: 9px; color: var(--text-secondary); margin-top: 2px; }
+
+  /* ——— 分割 ——— */
+  .hairline {
+    height: 1px;
+    background: var(--hairline);
+    margin: 0 10px;
+  }
+
+  /* ——— 历史列表 ——— */
+  .history {
+    padding: 8px 10px 4px;
+  }
+  .history h3 {
+    font-size: 10px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    margin: 0 0 4px;
+  }
+  .history__row {
+    display: grid;
+    grid-template-columns: 38px 1fr 56px 50px 42px 34px;
+    align-items: center;
+    gap: 4px;
+    font: 500 10px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    font-variant-numeric: tabular-nums;
+    padding: 2px 0;
+    white-space: nowrap;
+  }
+  .history__row > * { white-space: nowrap; overflow: hidden; }
+  .history__row .d { color: var(--text-secondary); }
+  .history__row .chars { text-align: right; color: var(--text-primary); }
+  .history__row .cpm { text-align: right; color: var(--text-primary); }
+  .history__row .cm { text-align: right; color: var(--text-secondary); }
+  .history__row .mn { text-align: right; color: var(--text-secondary); }
+  .history__row small {
+    font-size: 9px;
+    font-weight: 400;
+    margin-left: 1px;
+    color: var(--text-tertiary);
+  }
+
+  /* ——————————————————————————— */
+  /* ★ 趋势图表 — 重设计核心          */
+  /* ——————————————————————————— */
+  .trend {
+    padding: 10px 10px 12px;
+  }
+
+  /* 头部：标题 + 周期切换 */
+  .trend__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .trend__title {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .trend__title h3 {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-primary);
+  }
+  .trend__title .sub {
+    font-size: 9px;
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ——— Liquid Glass segmented pill ——— */
+  .segmented {
+    display: inline-flex;
+    position: relative;
+    padding: 2px;
+    border-radius: 999px;
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.04) 0%,
+        rgba(0, 0, 0, 0.03) 100%),
+      var(--bg-chip);
+    backdrop-filter: blur(22px) saturate(170%);
+    -webkit-backdrop-filter: blur(22px) saturate(170%);
+    border: 0.5px solid var(--hairline-strong);
+    box-shadow:
+      inset 0 0.5px 0 rgba(255, 255, 255, 0.10),
+      inset 0 -0.5px 0 rgba(0, 0, 0, 0.08);
+  }
+  .segmented button {
+    background: transparent;
+    border: 0;
+    color: var(--text-secondary);
+    font: 500 9.5px/1 -apple-system, sans-serif;
+    padding: 5px 11px;
+    border-radius: 999px;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    position: relative;
+    transition: color .18s ease;
+  }
+  .segmented button:hover { color: var(--text-primary); }
+  .segmented button.on {
+    color: var(--text-primary);
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.30) 0%,
+        rgba(255, 255, 255, 0.16) 45%,
+        rgba(255, 255, 255, 0.10) 100%);
+    backdrop-filter: blur(14px) saturate(180%);
+    -webkit-backdrop-filter: blur(14px) saturate(180%);
+    box-shadow:
+      inset 0 1px 0.5px rgba(255, 255, 255, 0.55),   /* 顶部高光 */
+      inset 0 -0.5px 0.5px rgba(0, 0, 0, 0.10),       /* 底部阴影 */
+      inset 0 0 0 0.5px rgba(255, 255, 255, 0.35),    /* 内描边 */
+      0 1px 2px rgba(0, 0, 0, 0.18),                  /* 投影近 */
+      0 4px 10px rgba(0, 0, 0, 0.12);                 /* 投影远 */
+  }
+  /* 液态光斑（specular）*/
+  .segmented button.on::before {
+    content: "";
+    position: absolute;
+    inset: 1px 2px auto 2px;
+    height: 45%;
+    border-radius: 999px;
+    background: linear-gradient(180deg,
+      rgba(255, 255, 255, 0.45) 0%,
+      rgba(255, 255, 255, 0) 100%);
+    pointer-events: none;
+    opacity: 0.9;
+  }
+
+  /* 浅色下液态玻璃调整：降低 specular，加厚底影 */
+  :root[data-theme="light"] .segmented button.on,
+  :root:not([data-theme]) .segmented button.on {}
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme]) .segmented button.on {
+      background:
+        linear-gradient(180deg,
+          rgba(255, 255, 255, 0.95) 0%,
+          rgba(255, 255, 255, 0.80) 60%,
+          rgba(255, 250, 240, 0.70) 100%);
+      box-shadow:
+        inset 0 1px 0.5px rgba(255, 255, 255, 0.9),
+        inset 0 -0.5px 0.5px rgba(120, 80, 50, 0.10),
+        inset 0 0 0 0.5px rgba(255, 255, 255, 0.5),
+        0 1px 2px rgba(80, 50, 30, 0.12),
+        0 3px 8px rgba(80, 50, 30, 0.10);
+    }
+    :root:not([data-theme]) .segmented button.on::before {
+      background: linear-gradient(180deg,
+        rgba(255, 255, 255, 0.9) 0%,
+        rgba(255, 255, 255, 0) 100%);
+    }
+  }
+  :root[data-theme="light"] .segmented button.on {
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.95) 0%,
+        rgba(255, 255, 255, 0.80) 60%,
+        rgba(255, 250, 240, 0.70) 100%);
+    box-shadow:
+      inset 0 1px 0.5px rgba(255, 255, 255, 0.9),
+      inset 0 -0.5px 0.5px rgba(120, 80, 50, 0.10),
+      inset 0 0 0 0.5px rgba(255, 255, 255, 0.5),
+      0 1px 2px rgba(80, 50, 30, 0.12),
+      0 3px 8px rgba(80, 50, 30, 0.10);
+  }
+  :root[data-theme="light"] .segmented button.on::before {
+    background: linear-gradient(180deg,
+      rgba(255, 255, 255, 0.9) 0%,
+      rgba(255, 255, 255, 0) 100%);
+  }
+
+  /* 主指标 tab 行 — 液态玻璃胶囊 */
+  .trend__tabs {
+    display: flex;
+    gap: 2px;
+    margin: 0 0 8px;
+    padding: 2px;
+    border-radius: 999px;
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.04) 0%,
+        rgba(0, 0, 0, 0.03) 100%),
+      var(--bg-chip);
+    backdrop-filter: blur(22px) saturate(170%);
+    -webkit-backdrop-filter: blur(22px) saturate(170%);
+    border: 0.5px solid var(--hairline-strong);
+    box-shadow:
+      inset 0 0.5px 0 rgba(255, 255, 255, 0.08),
+      inset 0 -0.5px 0 rgba(0, 0, 0, 0.06);
+  }
+  .trend__tab {
+    flex: 1;
+    background: transparent;
+    border: 0;
+    padding: 5px 0;
+    color: var(--text-secondary);
+    font: 500 10px/1 -apple-system, sans-serif;
+    cursor: pointer;
+    border-radius: 999px;
+    position: relative;
+    transition: color .18s ease;
+    letter-spacing: 0.02em;
+  }
+  .trend__tab:hover { color: var(--text-primary); }
+  .trend__tab.on {
+    color: var(--text-primary);
+    font-weight: 600;
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.28) 0%,
+        rgba(255, 255, 255, 0.14) 45%,
+        rgba(255, 255, 255, 0.08) 100%);
+    backdrop-filter: blur(14px) saturate(180%);
+    -webkit-backdrop-filter: blur(14px) saturate(180%);
+    box-shadow:
+      inset 0 1px 0.5px rgba(255, 255, 255, 0.50),
+      inset 0 -0.5px 0.5px rgba(0, 0, 0, 0.08),
+      inset 0 0 0 0.5px rgba(255, 255, 255, 0.30),
+      0 1px 2px rgba(0, 0, 0, 0.16),
+      0 3px 8px rgba(0, 0, 0, 0.10);
+  }
+  .trend__tab.on::before {
+    content: "";
+    position: absolute;
+    inset: 1px 2px auto 2px;
+    height: 45%;
+    border-radius: 999px;
+    background: linear-gradient(180deg,
+      rgba(255, 255, 255, 0.42) 0%,
+      rgba(255, 255, 255, 0) 100%);
+    pointer-events: none;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme]) .trend__tab.on {
+      background:
+        linear-gradient(180deg,
+          rgba(255, 255, 255, 0.95) 0%,
+          rgba(255, 255, 255, 0.80) 60%,
+          rgba(255, 250, 240, 0.70) 100%);
+      box-shadow:
+        inset 0 1px 0.5px rgba(255, 255, 255, 0.9),
+        inset 0 -0.5px 0.5px rgba(120, 80, 50, 0.10),
+        inset 0 0 0 0.5px rgba(255, 255, 255, 0.5),
+        0 1px 2px rgba(80, 50, 30, 0.12),
+        0 3px 8px rgba(80, 50, 30, 0.10);
+    }
+    :root:not([data-theme]) .trend__tab.on::before {
+      background: linear-gradient(180deg,
+        rgba(255, 255, 255, 0.9) 0%,
+        rgba(255, 255, 255, 0) 100%);
+    }
+  }
+  :root[data-theme="light"] .trend__tab.on {
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.95) 0%,
+        rgba(255, 255, 255, 0.80) 60%,
+        rgba(255, 250, 240, 0.70) 100%);
+    box-shadow:
+      inset 0 1px 0.5px rgba(255, 255, 255, 0.9),
+      inset 0 -0.5px 0.5px rgba(120, 80, 50, 0.10),
+      inset 0 0 0 0.5px rgba(255, 255, 255, 0.5),
+      0 1px 2px rgba(80, 50, 30, 0.12),
+      0 3px 8px rgba(80, 50, 30, 0.10);
+  }
+  :root[data-theme="light"] .trend__tab.on::before {
+    background: linear-gradient(180deg,
+      rgba(255, 255, 255, 0.9) 0%,
+      rgba(255, 255, 255, 0) 100%);
+  }
+
+  /* 主柱状图 */
+  .trend__chart {
+    position: relative;
+    height: 80px;
+    padding: 0 2px;
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+  }
+  .bar {
+    flex: 1;
+    background: var(--bg-chip-active);
+    border-radius: 2px 2px 0 0;
+    position: relative;
+    min-height: 3px;
+    transition: background .2s;
+  }
+  .bar.peak {
+    background: var(--accent);
+  }
+  .bar.today {
+    background: var(--accent-dim);
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
+  }
+  .bar:hover { background: var(--hairline-strong); }
+  .bar.peak:hover { filter: brightness(1.1); }
+
+  /* 网格基线 */
+  .trend__chart::before {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 1px;
+    background: var(--hairline);
+  }
+
+  /* 轴标签：只 3 个 */
+  .trend__axis {
+    display: flex;
+    justify-content: space-between;
+    font: 500 9px/1 "SF Mono", Menlo, monospace;
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+    padding: 4px 2px 0;
+  }
+
+  /* 主值 badge — 显示所选指标的累计/当前值 */
+  .trend__value {
+    position: absolute;
+    top: 0; right: 0;
+    font: 600 14px/1 -apple-system, sans-serif;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+  }
+  .trend__value small {
+    font-size: 9px;
+    color: var(--text-tertiary);
+    margin-left: 2px;
+    font-weight: 500;
+  }
+
+  .trend__chart-wrap {
+    position: relative;
+    margin-top: 2px;
+  }
+
+  /* ——— Small multiples 小倍图 ——— */
+  .multiples {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--hairline);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .mult {
+    display: grid;
+    grid-template-columns: 10px 44px 1fr 56px;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 2px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .mult:hover { background: var(--bg-chip); }
+  .mult .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    justify-self: center;
+  }
+  .mult .name {
+    font-size: 10px;
+    color: var(--text-secondary);
+    letter-spacing: 0.02em;
+  }
+  .mult .spark {
+    height: 18px;
+    display: block;
+  }
+  .mult .val {
+    font: 600 11px/1 -apple-system, sans-serif;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: var(--text-primary);
+  }
+  .mult .val small {
+    font-size: 8.5px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    margin-left: 1px;
+  }
+  .mult[data-metric="cjk"] .dot { background: var(--cjk); }
+  .mult[data-metric="en"]  .dot { background: var(--en); }
+  .mult[data-metric="cpm"] .dot { background: var(--accent); }
+  .mult[data-metric="mins"] .dot { background: var(--mins); }
+  .mult[data-metric="commits"] .dot { background: var(--commits); }
+
+  /* ——— 底部总计条 ——— */
+  .totals {
+    margin: 10px 10px 0;
+    background: var(--bg-chip);
+    border: 1px solid var(--hairline);
+    border-radius: 7px;
+    padding: 7px 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    font: 500 10px/1.2 -apple-system, sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  .totals > div {
+    text-align: center;
+    padding: 0 6px;
+    border-right: 1px solid var(--hairline);
+  }
+  .totals > div:last-child { border-right: none; }
+  .totals .k { color: var(--text-tertiary); font-size: 8.5px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .totals .v { color: var(--text-primary); margin-top: 1px; }
+
+  /* ——— 底部控制条 ——— */
+  .footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-top: 1px solid var(--hairline);
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-top: 10px;
+  }
+  .footer .sw {
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .footer .toggle {
+    width: 26px; height: 15px; background: var(--accent);
+    border-radius: 8px; position: relative;
+  }
+  .footer .toggle::after {
+    content: ""; position: absolute; top: 1.5px; right: 1.5px;
+    width: 12px; height: 12px; background: white; border-radius: 50%;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  }
+  .footer button {
+    background: none; border: 0; color: var(--text-secondary); font-size: 10px; cursor: pointer;
+  }
+
+  /* ——— 标注（右侧说明） ——— */
+  .notes {
+    max-width: 420px;
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--notes);
+  }
+  .notes h2 {
+    font-size: 18px;
+    letter-spacing: -0.01em;
+    margin: 0 0 12px;
+    color: var(--page-fg);
+  }
+  .notes h3 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--page-accent);
+    margin: 24px 0 8px;
+    font-weight: 600;
+  }
+  .notes ul { padding-left: 1.1em; margin: 0; }
+  .notes li { margin: 4px 0; }
+  .notes code {
+    background: var(--page-chip);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 11.5px;
+  }
+  .notes .swatch {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    vertical-align: middle; margin-right: 4px;
+  }
+
+  /* 主题切换按钮 */
+  .theme-toggle {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    display: inline-flex;
+    background: var(--page-chip);
+    border: 1px solid var(--page-line-strong);
+    border-radius: 8px;
+    padding: 3px;
+    box-shadow: var(--page-shadow);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    z-index: 10;
+  }
+  .theme-toggle button {
+    background: transparent;
+    border: 0;
+    color: var(--page-fg-dim);
+    font: 500 11px/1 -apple-system, sans-serif;
+    padding: 6px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+  }
+  .theme-toggle button.on {
+    background: var(--page-chip-active);
+    color: var(--page-fg);
+  }
+
+</style>
+</head>
+<body>
+
+<div class="theme-toggle">
+  <button data-theme-btn="auto" class="on">Auto</button>
+  <button data-theme-btn="light">Light</button>
+  <button data-theme-btn="dark">Dark</button>
+</div>
+
+<div class="stage">
+
+  <!-- 左侧：原型 -->
+  <div>
+    <div class="stage-label">重设计原型 · 286pt</div>
+
+    <div class="popover">
+
+      <!-- 今日（保持结构，仅微调） -->
+      <div class="today">
+        <div class="today__big"><span data-n="6303"></span></div>
+        <div class="today__split">
+          <span><span class="cjk-dot"></span>中文 <span data-n="6087"></span></span>
+          <span class="dot">·</span>
+          <span><span class="en-dot"></span>英文 <span data-n="216"></span></span>
+        </div>
+      </div>
+
+      <div class="metric-row">
+        <div class="speed-card">
+          <div class="nums">
+            <span class="n" data-n="104"></span>
+            <span class="sep">/</span>
+            <span class="n" data-n="189"></span>
+            <span class="u">字/分</span>
+          </div>
+          <div class="l">当前 / 峰值</div>
+        </div>
+        <div class="metric-card">
+          <div class="v">32.9<small>分</small></div>
+          <div class="l">活跃时长</div>
+        </div>
+        <div class="metric-card">
+          <div class="v"><span data-n="2720"></span><small>次</small></div>
+          <div class="l">提交</div>
+        </div>
+      </div>
+
+      <div class="hairline"></div>
+
+      <!-- 历史 7 天（保持） -->
+      <div class="history">
+        <h3>最近 7 天</h3>
+        <div class="history__row"><span class="d">04-19</span><span></span><span class="chars"><span data-n="64"></span><small>字</small></span><span class="cpm"><span data-n="213"></span><small>/分</small></span><span class="cm"><span data-n="28"></span><small>次</small></span><span class="mn">0<small>分</small></span></div>
+        <div class="history__row"><span class="d">04-18</span><span></span><span class="chars"><span data-n="93"></span><small>字</small></span><span class="cpm"><span data-n="232"></span><small>/分</small></span><span class="cm"><span data-n="35"></span><small>次</small></span><span class="mn">0<small>分</small></span></div>
+        <div class="history__row"><span class="d">04-17</span><span></span><span class="chars"><span data-n="9307"></span><small>字</small></span><span class="cpm"><span data-n="176"></span><small>/分</small></span><span class="cm"><span data-n="4100"></span><small>次</small></span><span class="mn">53<small>分</small></span></div>
+        <div class="history__row"><span class="d">04-16</span><span></span><span class="chars"><span data-n="1799"></span><small>字</small></span><span class="cpm"><span data-n="187"></span><small>/分</small></span><span class="cm"><span data-n="788"></span><small>次</small></span><span class="mn">10<small>分</small></span></div>
+        <div class="history__row"><span class="d">04-15</span><span></span><span class="chars"><span data-n="5838"></span><small>字</small></span><span class="cpm"><span data-n="182"></span><small>/分</small></span><span class="cm"><span data-n="2600"></span><small>次</small></span><span class="mn">32<small>分</small></span></div>
+        <div class="history__row"><span class="d">04-14</span><span></span><span class="chars"><span data-n="5369"></span><small>字</small></span><span class="cpm"><span data-n="199"></span><small>/分</small></span><span class="cm"><span data-n="2400"></span><small>次</small></span><span class="mn">27<small>分</small></span></div>
+        <div class="history__row"><span class="d">04-13</span><span></span><span class="chars"><span data-n="8187"></span><small>字</small></span><span class="cpm"><span data-n="192"></span><small>/分</small></span><span class="cm"><span data-n="3600"></span><small>次</small></span><span class="mn">43<small>分</small></span></div>
+      </div>
+
+      <div class="hairline"></div>
+
+      <!-- ★ 重设计的趋势图表 -->
+      <div class="trend">
+        <div class="trend__head">
+          <div class="trend__title">
+            <h3>趋势</h3>
+            <span class="sub">Apr 6 → Apr 19 · 按天</span>
+          </div>
+          <div class="segmented">
+            <button>7D</button>
+            <button class="on">30D</button>
+            <button>ALL</button>
+          </div>
+        </div>
+
+        <div class="trend__tabs">
+          <button class="trend__tab on">字数</button>
+          <button class="trend__tab">中文</button>
+          <button class="trend__tab">英文</button>
+          <button class="trend__tab">速度</button>
+          <button class="trend__tab">提交</button>
+        </div>
+
+        <div class="trend__chart-wrap">
+          <div class="trend__value" id="mainValue"><span data-n="9307"></span><small>字</small></div>
+          <div class="trend__chart" id="mainChart"></div>
+          <div class="trend__axis">
+            <span>04/06</span>
+            <span>04/13</span>
+            <span>04/19</span>
+          </div>
+        </div>
+
+        <!-- Small multiples -->
+        <div class="multiples">
+          <div class="mult" data-metric="cjk">
+            <span class="dot"></span><span class="name">中文</span>
+            <svg class="spark" viewBox="0 0 100 20" preserveAspectRatio="none"></svg>
+            <span class="val"><span data-n="21400"></span><small>字</small></span>
+          </div>
+          <div class="mult" data-metric="en">
+            <span class="dot"></span><span class="name">英文</span>
+            <svg class="spark" viewBox="0 0 100 20" preserveAspectRatio="none"></svg>
+            <span class="val"><span data-n="842"></span><small>词</small></span>
+          </div>
+          <div class="mult" data-metric="cpm">
+            <span class="dot"></span><span class="name">速度</span>
+            <svg class="spark" viewBox="0 0 100 20" preserveAspectRatio="none"></svg>
+            <span class="val"><span data-n="178"></span><small>/分</small></span>
+          </div>
+          <div class="mult" data-metric="mins">
+            <span class="dot"></span><span class="name">时长</span>
+            <svg class="spark" viewBox="0 0 100 20" preserveAspectRatio="none"></svg>
+            <span class="val">4<small>时</small>29<small>分</small></span>
+          </div>
+          <div class="mult" data-metric="commits">
+            <span class="dot"></span><span class="name">提交</span>
+            <svg class="spark" viewBox="0 0 100 20" preserveAspectRatio="none"></svg>
+            <span class="val"><span data-n="2200"></span><small>次</small></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 总计（保留但排版重做） -->
+      <div style="padding: 0 10px;">
+        <div class="totals">
+          <div><div class="k">字数</div><div class="v"><span data-n="50412"></span></div></div>
+          <div><div class="k">时长</div><div class="v">4<small>时</small>29<small>分</small></div></div>
+          <div><div class="k">提交</div><div class="v"><span data-n="22104"></span></div></div>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span class="sw"><span class="toggle"></span>开机启动</span>
+        <button>退出</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 右侧：设计说明 -->
+  <div class="notes">
+    <h2>图表重设计方案</h2>
+    <p>解决原版折线图「6 条线做 0–100 归一化后相互叠加 + X 轴标签溢出」的拥挤问题。采用 <b>主图表 + Small multiples</b> 的数据新闻式布局。</p>
+
+    <h3>关键改动</h3>
+    <ul>
+      <li><b>折线 → 柱状图</b>：日数据本质离散，柱高直接对应量级；<span class="swatch" style="background: var(--m-accent)"></span>峰值柱高亮，今日柱描边。</li>
+      <li><b>单指标主图</b>：头部 tab 切换「字数 / 中文 / 英文 / 速度 / 提交」，避免多线叠加。</li>
+      <li><b>Small multiples</b>：5 个指标每行一条 sparkline，各自独立 y 轴，右侧显示累计值 —— 一眼看齐所有趋势形状。</li>
+      <li><b>X 轴仅 3 个标签</b>（首/中/末），取代原来每柱一标签。</li>
+      <li><b>周期切换</b>：<code>7D / 30D / ALL</code>，快速从全景进入近期。</li>
+      <li><b>图例并入 sparkline 行</b>：省去 3×2 图例方阵。</li>
+    </ul>
+
+    <h3>视觉语言</h3>
+    <ul>
+      <li>深色 macOS 原生面板 + hairline 分割，保持系统一致性</li>
+      <li>Digital palette（图表限定，沿 <code>#00a5f7</code> 调性）：<span class="swatch" style="background: var(--m-accent)"></span>天蓝（速度）<span class="swatch" style="background: var(--m-cjk)"></span>翡翠（中文）<span class="swatch" style="background: var(--m-en)"></span>紫罗兰（英文）<span class="swatch" style="background: var(--m-mins)"></span>玫瑰粉（时长）<span class="swatch" style="background: var(--m-commits)"></span>琥珀黄（提交）</li>
+      <li>数字用 <code>tabular-nums</code> + SF Rounded 对齐</li>
+      <li>组件最小高度下沉，让信息密度提升 ≈30%</li>
+    </ul>
+
+    <h3>落地映射到 SwiftUI</h3>
+    <ul>
+      <li>主柱状图 → <code>Chart { BarMark }</code>，<code>.chartXAxis</code> 只保留首/中/末 3 个 label</li>
+      <li>Sparkline → <code>Chart { LineMark }</code> 小尺寸，隐藏双轴</li>
+      <li>周期 segment → <code>Picker(.segmented)</code>；tab 行可用 <code>HStack</code> + 下划线动画</li>
+      <li>当前 <code>TrendMetric</code> / <code>TrendGranularity</code> 逻辑可直接复用</li>
+    </ul>
+
+    <h3>交互预览</h3>
+    <ul>
+      <li>Hover 主图柱子 → tooltip 显示日期 + 精确数值</li>
+      <li>点击 small multiples 的某一行 → 主图切换到该指标</li>
+      <li>点击 7D / 30D / ALL → 自动切换按天/周/月粒度</li>
+    </ul>
+  </div>
+
+</div>
+
+<script>
+  // ——— 数字 千 / 万 / 亿 自动格式 ———
+  // < 1000: 1, 2, …, 999
+  // 1000 – 9999: 1.2千
+  // 10,000 – 99,999,999: 1.2万
+  // ≥ 1亿: 1.2亿
+  function fmtNum(n) {
+    if (n == null || isNaN(n)) return '';
+    n = Number(n);
+    const abs = Math.abs(n);
+    if (abs < 1000) return Math.round(n).toLocaleString('en-US');
+    if (abs < 10000) return stripZero(n / 1000) + '千';
+    if (abs < 1e8)   return stripZero(n / 10000) + '万';
+    return stripZero(n / 1e8) + '亿';
+  }
+  function stripZero(v) {
+    return v.toFixed(1).replace(/\.0$/, '');
+  }
+
+  // 应用到所有 data-n 节点
+  document.querySelectorAll('[data-n]').forEach(el => {
+    el.textContent = fmtNum(+el.dataset.n);
+  });
+
+  // ——— 造点拟真数据（20 天） ———
+  const days = 20;
+  const data = [];
+  for (let i = 0; i < days; i++) {
+    const weekend = i % 7 === 5 || i % 7 === 6;
+    const base = weekend ? 1500 : 5800;
+    const chars = Math.max(40, Math.floor(base + (Math.random() - 0.3) * 4000));
+    data.push({
+      idx: i,
+      chars,
+      cjk: Math.floor(chars * (0.7 + Math.random() * 0.25)),
+      en:  Math.floor(chars * (0.02 + Math.random() * 0.08) * 12),
+      cpm: Math.floor(160 + Math.random() * 80),
+      mins: Math.max(2, Math.floor(chars / 180 + Math.random() * 10)),
+      commits: Math.floor(chars / 2.2 + Math.random() * 200),
+    });
+  }
+  // 替换最后几天接近截图数据
+  const tail = [
+    { chars: 8187, cjk: 7900, en: 287, cpm: 192, mins: 43, commits: 3600 },
+    { chars: 5369, cjk: 5200, en: 169, cpm: 199, mins: 27, commits: 2400 },
+    { chars: 5838, cjk: 5650, en: 188, cpm: 182, mins: 32, commits: 2600 },
+    { chars: 1799, cjk: 1700, en: 99, cpm: 187, mins: 10, commits: 788 },
+    { chars: 9307, cjk: 9020, en: 287, cpm: 176, mins: 53, commits: 4100 },
+    { chars: 93,   cjk: 80,  en: 13,  cpm: 232, mins: 0,  commits: 35 },
+    { chars: 64,   cjk: 55,  en: 9,   cpm: 213, mins: 0,  commits: 28 },
+  ];
+  for (let i = 0; i < tail.length; i++) {
+    const slot = data[data.length - tail.length + i];
+    Object.assign(slot, tail[i]);
+  }
+
+  // ——— 主柱状图 ———
+  const main = document.getElementById('mainChart');
+  const maxChars = Math.max(...data.map(d => d.chars));
+  const peakIdx = data.findIndex(d => d.chars === maxChars);
+  data.forEach((d, i) => {
+    const bar = document.createElement('div');
+    bar.className = 'bar';
+    if (i === peakIdx) bar.classList.add('peak');
+    if (i === data.length - 1) bar.classList.add('today');
+    bar.style.height = (d.chars / maxChars * 100) + '%';
+    bar.title = `${d.chars.toLocaleString()} 字`;
+    main.appendChild(bar);
+  });
+
+  // ——— Sparklines ———
+  function sparkPath(values, w = 100, h = 20) {
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+    const span = max - min || 1;
+    const step = w / (values.length - 1 || 1);
+    return values.map((v, i) => {
+      const x = i * step;
+      const y = h - 2 - ((v - min) / span) * (h - 4);
+      return (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+  }
+
+  function renderSpark(selector, values, color) {
+    const svg = document.querySelector(selector);
+    const d = sparkPath(values);
+    svg.innerHTML = `
+      <path d="${d}" fill="none" stroke="${color}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="100" cy="${20 - 2 - ((values[values.length-1] - Math.min(...values)) / (Math.max(...values) - Math.min(...values) || 1)) * 16}" r="1.8" fill="${color}" />
+    `;
+  }
+
+  renderSpark('.mult[data-metric="cjk"] .spark',     data.map(d => d.cjk),     getCss('--cjk'));
+  renderSpark('.mult[data-metric="en"] .spark',      data.map(d => d.en),      getCss('--en'));
+  renderSpark('.mult[data-metric="cpm"] .spark',     data.map(d => d.cpm),     getCss('--accent'));
+  renderSpark('.mult[data-metric="mins"] .spark',    data.map(d => d.mins),    getCss('--mins'));
+  renderSpark('.mult[data-metric="commits"] .spark', data.map(d => d.commits), getCss('--commits'));
+
+  function getCss(v) {
+    return getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  }
+
+  // ——— 主题切换 ———
+  const root = document.documentElement;
+  const btns = document.querySelectorAll('[data-theme-btn]');
+  btns.forEach(b => b.addEventListener('click', () => {
+    const mode = b.dataset.themeBtn;
+    btns.forEach(x => x.classList.toggle('on', x === b));
+    if (mode === 'auto') {
+      root.removeAttribute('data-theme');
+    } else {
+      root.setAttribute('data-theme', mode);
+    }
+    // 重新渲染 sparkline 颜色
+    renderSpark('.mult[data-metric="cjk"] .spark',     data.map(d => d.cjk),     getCss('--cjk'));
+    renderSpark('.mult[data-metric="en"] .spark',      data.map(d => d.en),      getCss('--en'));
+    renderSpark('.mult[data-metric="cpm"] .spark',     data.map(d => d.cpm),     getCss('--accent'));
+    renderSpark('.mult[data-metric="mins"] .spark',    data.map(d => d.mins),    getCss('--mins'));
+    renderSpark('.mult[data-metric="commits"] .spark', data.map(d => d.commits), getCss('--commits'));
+  }));
+</script>
+
+</body>
+</html>
