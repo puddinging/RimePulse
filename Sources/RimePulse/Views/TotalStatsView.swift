@@ -14,6 +14,10 @@ struct TotalStatsView: View {
     /// 聚合结果缓存：只在 (trendDaily / selectedRange) 变化时重算
     @State private var aggregatedCache: AggregatedCache = .empty
 
+    /// 首次打开菜单栏时延迟渲染主 Chart，避免 Charts 框架 + Metal shader
+    /// 首次加载阻塞首帧。其余内容（today、总计条、自绘 sparkline）先出。
+    @State private var showMainChart = false
+
     private static let calendar = Calendar.autoupdatingCurrent
     private static let dayAxisFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -101,6 +105,12 @@ struct TotalStatsView: View {
             totalsBar.padding(.horizontal, 10)
         }
         .onAppear { rebuildAggregatedCache() }
+        .task {
+            // 首帧先让轻量内容（today / sparkline / 总计条）上屏，
+            // 再在下一帧实例化 Swift Charts — 用户感知是瞬开+图表渐入。
+            try? await Task.sleep(for: .milliseconds(16))
+            showMainChart = true
+        }
         .onChange(of: aggregationSignature) { _, _ in
             rebuildAggregatedCache()
         }
@@ -235,8 +245,11 @@ struct TotalStatsView: View {
                     .foregroundStyle(.tertiary)
             }
             .controlSize(.mini)
-        } else {
+        } else if showMainChart {
             mainChartCore
+                .transition(.opacity)
+        } else {
+            Color.clear
         }
     }
 
