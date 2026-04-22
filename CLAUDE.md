@@ -44,7 +44,14 @@ No tests or linter are currently configured.
   - `TotalStatsView` — aggregated chars, duration, commits across all visible records
 
 **Data sources** (read from `~/Library/Rime` by default, configurable via `~/.config/rimestats/config.json`):
-- `typing_stats_today.json` — single JSON object, today's live stats
-- `typing_stats.jsonl` — one JSON line per day, historical records
+- `typing_stats_today.txt` / `typing_stats_today.json` — single JSON object, today's live stats (`.txt` is primary, `.json` kept as legacy)
+- `typing_stats.txt` / `typing_stats.jsonl` — one JSON line per day, historical records
+- Key fields: `chars` (CJK + ASCII chars), `chars_cjk`, `chars_ascii`, `current_cpm`, `peak_cpm`, `burst_cpm`, `active_minutes`
 
-**Model**: `TypingStats` uses `snake_case` CodingKeys to map from JSON. All fields are required (no optionals). `id` is derived from `date`.
+**Model**: `TypingStats` uses `snake_case` CodingKeys to map from JSON. All fields are required (no optionals). `id` is derived from `date`. Decoder accepts legacy `words_en` in place of `chars_ascii` so old JSONL records still parse.
+
+**Speed algorithm** (`rime/tstats.lua`):
+- Per-second ring buffer (60 buckets, one char-count per second) — sliding window sum over 15s for `current_cpm`, 60s for `peak_cpm`
+- Empty seconds are lazily zeroed when the next commit crosses into a new second — stopping typing naturally decays `current_cpm`
+- `burst_cpm` = per-commit instantaneous speed `n * 60000 / compose_time_ms`, kept as the day's max (bounded by `BURST_MIN_MS = 200`, `BURST_MAX_MS = 120000`)
+- Character counting in `count_text`: CJK codepoints and visible ASCII (`0x21..0x7E`) both counted by character, not by word

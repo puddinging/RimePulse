@@ -8,12 +8,13 @@ struct TypingStats: Codable, Identifiable, Sendable {
     let updatedAt: Int64
     let chars: Int
     let charsCjk: Int
-    let wordsEn: Int
+    let charsAscii: Int
     let commits: Int
     let avgWordLength: Double
     let charsPerMinute: Int
     let currentCpm: Int
     let peakCpm: Int
+    let burstCpm: Int
     let activeMinutes: Double
     let newWordsCount: Int
     let newWords: [String]
@@ -35,13 +36,14 @@ struct TypingStats: Codable, Identifiable, Sendable {
         case updatedAt = "updated_at"
         case chars
         case charsCjk = "chars_cjk"
-        case wordsEn = "words_en"
         case charsAscii = "chars_ascii"
+        case wordsEn = "words_en"
         case commits
         case avgWordLength = "avg_word_length"
         case charsPerMinute = "chars_per_minute"
         case currentCpm = "current_cpm"
         case peakCpm = "peak_cpm"
+        case burstCpm = "burst_cpm"
         case activeMinutes = "active_minutes"
         case newWordsCount = "new_words_count"
         case newWords = "new_words"
@@ -54,12 +56,13 @@ struct TypingStats: Codable, Identifiable, Sendable {
         try c.encode(updatedAt, forKey: .updatedAt)
         try c.encode(chars, forKey: .chars)
         try c.encode(charsCjk, forKey: .charsCjk)
-        try c.encode(wordsEn, forKey: .wordsEn)
+        try c.encode(charsAscii, forKey: .charsAscii)
         try c.encode(commits, forKey: .commits)
         try c.encode(avgWordLength, forKey: .avgWordLength)
         try c.encode(charsPerMinute, forKey: .charsPerMinute)
         try c.encode(currentCpm, forKey: .currentCpm)
         try c.encode(peakCpm, forKey: .peakCpm)
+        try c.encode(burstCpm, forKey: .burstCpm)
         try c.encode(activeMinutes, forKey: .activeMinutes)
         try c.encode(newWordsCount, forKey: .newWordsCount)
         try c.encode(newWords, forKey: .newWords)
@@ -67,20 +70,21 @@ struct TypingStats: Codable, Identifiable, Sendable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        // date is the only truly required field — record identity
         date = try c.decode(String.self, forKey: .date)
         createdAt = try c.decode(Int64.self, forKey: .createdAt)
         updatedAt = try c.decode(Int64.self, forKey: .updatedAt)
         chars = try c.decode(Int.self, forKey: .chars)
         charsCjk = try c.decode(Int.self, forKey: .charsCjk)
-        // Legacy fallback: words_en ← chars_ascii (field renamed)
-        wordsEn = try (try? c.decode(Int.self, forKey: .wordsEn))
-                  ?? c.decode(Int.self, forKey: .charsAscii)
+        // chars_ascii 是新主字段；words_en 是旧版字段名（历史 JSONL 里存的是英文词数，
+        // 口径已变但留作 fallback，以便读旧历史行不至于失败）
+        charsAscii = try (try? c.decode(Int.self, forKey: .charsAscii))
+                     ?? c.decode(Int.self, forKey: .wordsEn)
         commits = try c.decode(Int.self, forKey: .commits)
         avgWordLength = try c.decode(Double.self, forKey: .avgWordLength)
         charsPerMinute = try c.decode(Int.self, forKey: .charsPerMinute)
         currentCpm = (try? c.decode(Int.self, forKey: .currentCpm)) ?? charsPerMinute
         peakCpm = try c.decode(Int.self, forKey: .peakCpm)
+        burstCpm = (try? c.decode(Int.self, forKey: .burstCpm)) ?? 0
         activeMinutes = try c.decode(Double.self, forKey: .activeMinutes)
         newWordsCount = try c.decode(Int.self, forKey: .newWordsCount)
         newWords = try c.decode([String].self, forKey: .newWords)
@@ -89,9 +93,10 @@ struct TypingStats: Codable, Identifiable, Sendable {
     /// For testing and programmatic creation
     init(
         date: String, createdAt: Int64 = 0, updatedAt: Int64 = 0,
-        chars: Int = 0, charsCjk: Int = 0, wordsEn: Int = 0,
+        chars: Int = 0, charsCjk: Int = 0, charsAscii: Int = 0,
         commits: Int = 0, avgWordLength: Double = 0,
         charsPerMinute: Int = 0, currentCpm: Int? = nil, peakCpm: Int = 0,
+        burstCpm: Int = 0,
         activeMinutes: Double = 0, newWordsCount: Int = 0, newWords: [String] = []
     ) {
         self.date = date
@@ -99,12 +104,13 @@ struct TypingStats: Codable, Identifiable, Sendable {
         self.updatedAt = updatedAt
         self.chars = chars
         self.charsCjk = charsCjk
-        self.wordsEn = wordsEn
+        self.charsAscii = charsAscii
         self.commits = commits
         self.avgWordLength = avgWordLength
         self.charsPerMinute = charsPerMinute
         self.currentCpm = currentCpm ?? charsPerMinute
         self.peakCpm = peakCpm
+        self.burstCpm = burstCpm
         self.activeMinutes = activeMinutes
         self.newWordsCount = newWordsCount
         self.newWords = newWords

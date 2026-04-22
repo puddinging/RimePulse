@@ -20,17 +20,27 @@ local legacy_today_file = "typing_stats_today.json"
 local legacy_history_file = "typing_stats.jsonl"
 local archive
 
--- 实时速度参数（参考常见打字应用的“秒级采样 + 窗口平滑”思路）
-local SPEED_WINDOW_MS = 15000
-local PEAK_WINDOW_MS = 60000
-local MIN_CURRENT_SPAN_MS = 6000
-local MIN_CURRENT_COMMITS = 2
-local MIN_CURRENT_CHARS = 4
-local CURRENT_EMA_ALPHA = 0.35
-local PEAK_MIN_SPAN_MS = 10000
-local PEAK_MIN_COMMITS = 3
-local PEAK_MIN_CHARS = 12
-local IDLE_RESET_MS = 20000
+-- 速度算法参数：按秒分桶的环形滑动窗口
+-- 设计动机：事件级窗口对"整词一次上屏"不稳定（会被 MIN_SPAN clamp），
+-- 秒桶把时间轴切成等间隔格子，空闲秒自然计入分母，停打后数字平滑衰减。
+local BUCKET_COUNT           = 60     -- 环形桶总数（≥ PEAK_WINDOW_SEC）
+local CURRENT_WINDOW_SEC     = 15     -- 当前速度窗口
+local PEAK_WINDOW_SEC        = 60     -- 峰值速度窗口
+local BUCKET_MIN_CHARS_CURR  = 4      -- 当前速度的最低触发字符数
+local BUCKET_MIN_CHARS_PEAK  = 12     -- 峰值更新的最低触发字符数
+local BURST_MIN_MS           = 200    -- burst 计算的最短组合时长（防除零虚高）
+local BURST_MAX_MS           = 120000 -- burst 计算的最长组合时长（防候选挂起）
+local IDLE_RESET_MS          = 20000  -- 空闲判定阈值（复用给 compose_start 失效）
+
+local buckets = {}
+local last_bucket_sec = 0
+
+local function reset_buckets()
+    for i = 0, BUCKET_COUNT - 1 do
+        buckets[i] = 0
+    end
+    last_bucket_sec = 0
+end
 
 local function json_esc(s)
     return s:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('\n', '\\n'):gsub('\r', '')
@@ -90,11 +100,12 @@ local function new_stats()
         updated_at = now_ms(),
         chars = 0,
         chars_cjk = 0,
-        words_en = 0,
+        chars_ascii = 0,
         commits = 0,
         active_ms = 0,
         current_cpm = 0,
         peak_cpm = 0,
+        burst_cpm = 0,
         new_words = {},
     }
 end
@@ -114,89 +125,79 @@ local function derived(s)
     return min, cpm, avg_len
 end
 
--- 实时速度与峰值：滑动窗口（毫秒） + 指数平滑（当前速度）
-local speed_window = {}
-local peak_window = {}
-
-local function trim_window(window, cutoff_ms)
-    local kept = {}
-    local total = 0
-    for _, entry in ipairs(window) do
-        if entry.t > cutoff_ms then
-            kept[#kept + 1] = entry
-            total = total + entry.c
+-- 秒桶：advance 填补 (last_bucket_sec, now_sec] 之间的空秒为 0
+local function advance_buckets(now_sec)
+    if last_bucket_sec == 0 then
+        last_bucket_sec = now_sec
+        return
+    end
+    if now_sec <= last_bucket_sec then
+        return  -- 同一秒或时钟回拨，不做清零
+    end
+    local gap = now_sec - last_bucket_sec
+    if gap >= BUCKET_COUNT then
+        for i = 0, BUCKET_COUNT - 1 do buckets[i] = 0 end
+    else
+        for k = 1, gap do
+            buckets[(last_bucket_sec + k) % BUCKET_COUNT] = 0
         end
     end
-    return kept, total
+    last_bucket_sec = now_sec
 end
 
-local function update_current_speed(now, char_count)
-    speed_window[#speed_window + 1] = { t = now, c = char_count }
-    local total
-    speed_window, total = trim_window(speed_window, now - SPEED_WINDOW_MS)
+local function deposit(now_sec, n)
+    advance_buckets(now_sec)
+    local idx = now_sec % BUCKET_COUNT
+    buckets[idx] = buckets[idx] + n
+end
 
-    if #speed_window < MIN_CURRENT_COMMITS or total < MIN_CURRENT_CHARS then
-        stats.current_cpm = 0
-        return
-    end
-
-    local span = speed_window[#speed_window].t - speed_window[1].t
-    if span <= 0 then
-        return
-    end
-
-    local span_for_calc = math.max(span, MIN_CURRENT_SPAN_MS)
-    local raw_cpm = math.floor(total * 60000 / span_for_calc)
-    if stats.current_cpm <= 0 then
-        stats.current_cpm = raw_cpm
-        if stats.current_cpm > stats.peak_cpm then
-            stats.peak_cpm = stats.current_cpm
+-- 求最近 window_sec 秒内的字符总数（含 now_sec 这一格）
+local function window_sum(now_sec, window_sec)
+    local total = 0
+    local span = math.min(window_sec, BUCKET_COUNT)
+    for k = 0, span - 1 do
+        local sec = now_sec - k
+        if sec >= 0 then
+            total = total + (buckets[sec % BUCKET_COUNT] or 0)
         end
-        return
+    end
+    return total
+end
+
+local function update_speeds(now_sec)
+    local cur_total = window_sum(now_sec, CURRENT_WINDOW_SEC)
+    if cur_total < BUCKET_MIN_CHARS_CURR then
+        stats.current_cpm = 0
+    else
+        stats.current_cpm = math.floor(cur_total * 60 / CURRENT_WINDOW_SEC)
     end
 
-    local smoothed = stats.current_cpm * (1 - CURRENT_EMA_ALPHA) + raw_cpm * CURRENT_EMA_ALPHA
-    stats.current_cpm = math.floor(smoothed + 0.5)
+    local peak_total = window_sum(now_sec, PEAK_WINDOW_SEC)
+    if peak_total >= BUCKET_MIN_CHARS_PEAK then
+        local peak_cpm_new = math.floor(peak_total * 60 / PEAK_WINDOW_SEC)
+        if peak_cpm_new > stats.peak_cpm then
+            stats.peak_cpm = peak_cpm_new
+        end
+    end
+    -- 当前速度不应超过峰值记录
     if stats.current_cpm > stats.peak_cpm then
         stats.peak_cpm = stats.current_cpm
     end
 end
 
-local function update_peak(now, char_count)
-    peak_window[#peak_window + 1] = { t = now, c = char_count }
-    local total
-    peak_window, total = trim_window(peak_window, now - PEAK_WINDOW_MS)
-
-    if #peak_window < PEAK_MIN_COMMITS or total < PEAK_MIN_CHARS then
-        return
-    end
-
-    local span = peak_window[#peak_window].t - peak_window[1].t
-    if span >= PEAK_MIN_SPAN_MS then
-        local window_cpm = math.floor(total * 60000 / span)
-        if window_cpm > stats.peak_cpm then
-            stats.peak_cpm = window_cpm
-        end
-    end
-end
-
 local function count_text(text)
     local cjk = 0
+    local ascii = 0
     for _, cp in utf8.codes(text) do
         if (cp >= 0x4E00 and cp <= 0x9FFF) or
            (cp >= 0x3400 and cp <= 0x4DBF) or
            (cp >= 0x20000 and cp <= 0x2A6DF) then
             cjk = cjk + 1
+        elseif cp >= 0x21 and cp <= 0x7E then
+            ascii = ascii + 1
         end
     end
-    -- 英文按单词计数：匹配至少包含一个字母的连续非空白序列
-    local words_en = 0
-    for word in text:gmatch("%S+") do
-        if word:match("[%a]") then
-            words_en = words_en + 1
-        end
-    end
-    return cjk, words_en
+    return cjk, ascii
 end
 
 local function load_today()
@@ -211,11 +212,13 @@ local function load_today()
         old.updated_at = tonumber(c:match('"updated_at"%s*:%s*(%d+)')) or 0
         old.chars = tonumber(c:match('"chars"%s*:%s*(%d+)')) or 0
         old.chars_cjk = tonumber(c:match('"chars_cjk"%s*:%s*(%d+)')) or 0
-        old.words_en = tonumber(c:match('"words_en"%s*:%s*(%d+)')) or 0
+        old.chars_ascii = tonumber(c:match('"chars_ascii"%s*:%s*(%d+)'))
+                          or tonumber(c:match('"words_en"%s*:%s*(%d+)')) or 0
         old.commits = tonumber(c:match('"commits"%s*:%s*(%d+)')) or 0
         old.active_ms = (tonumber(c:match('"active_minutes"%s*:%s*([%d%.]+)')) or 0) * 60000
         old.current_cpm = tonumber(c:match('"current_cpm"%s*:%s*(%d+)')) or 0
         old.peak_cpm = tonumber(c:match('"peak_cpm"%s*:%s*(%d+)')) or 0
+        old.burst_cpm = tonumber(c:match('"burst_cpm"%s*:%s*(%d+)')) or 0
         if old.chars > 0 then
             stats = old
             local archived = archive()
@@ -233,11 +236,13 @@ local function load_today()
     s.created_at = tonumber(c:match('"created_at"%s*:%s*(%d+)')) or now_ms()
     s.chars = tonumber(c:match('"chars"%s*:%s*(%d+)')) or 0
     s.chars_cjk = tonumber(c:match('"chars_cjk"%s*:%s*(%d+)')) or 0
-    s.words_en = tonumber(c:match('"words_en"%s*:%s*(%d+)')) or 0
+    s.chars_ascii = tonumber(c:match('"chars_ascii"%s*:%s*(%d+)'))
+                    or tonumber(c:match('"words_en"%s*:%s*(%d+)')) or 0
     s.commits = tonumber(c:match('"commits"%s*:%s*(%d+)')) or 0
     s.active_ms = (tonumber(c:match('"active_minutes"%s*:%s*([%d%.]+)')) or 0) * 60000
     s.current_cpm = tonumber(c:match('"current_cpm"%s*:%s*(%d+)')) or 0
     s.peak_cpm = tonumber(c:match('"peak_cpm"%s*:%s*(%d+)')) or 0
+    s.burst_cpm = tonumber(c:match('"burst_cpm"%s*:%s*(%d+)')) or 0
     return s
 end
 
@@ -245,7 +250,6 @@ local function save_today()
     if not stats or stats.chars == 0 then return end
     stats.updated_at = now_ms()
     local min, cpm, avg_len = derived(stats)
-    -- 峰值仅来自滑动窗口统计，不与当日平均速度混用
     local peak = stats.peak_cpm
     local content = string.format('{\n'
         .. '  "date": "%s",\n'
@@ -253,18 +257,19 @@ local function save_today()
         .. '  "updated_at": %d,\n'
         .. '  "chars": %d,\n'
         .. '  "chars_cjk": %d,\n'
-        .. '  "words_en": %d,\n'
+        .. '  "chars_ascii": %d,\n'
         .. '  "commits": %d,\n'
         .. '  "avg_word_length": %.1f,\n'
         .. '  "chars_per_minute": %d,\n'
         .. '  "current_cpm": %d,\n'
         .. '  "peak_cpm": %d,\n'
+        .. '  "burst_cpm": %d,\n'
         .. '  "active_minutes": %.1f,\n'
         .. '  "new_words_count": %d,\n'
         .. '  "new_words": [%s]\n}\n',
         stats.date, stats.created_at, stats.updated_at,
-        stats.chars, stats.chars_cjk, stats.words_en,
-        stats.commits, avg_len, cpm, stats.current_cpm, peak, min,
+        stats.chars, stats.chars_cjk, stats.chars_ascii,
+        stats.commits, avg_len, cpm, stats.current_cpm, peak, stats.burst_cpm, min,
         #stats.new_words, words_json(stats.new_words)
     )
 
@@ -284,13 +289,13 @@ archive = function()
     local peak = stats.peak_cpm
     local line = string.format(
         '{"date":"%s","created_at":%d,"updated_at":%d,'
-        .. '"chars":%d,"chars_cjk":%d,"words_en":%d,'
+        .. '"chars":%d,"chars_cjk":%d,"chars_ascii":%d,'
         .. '"commits":%d,"avg_word_length":%.1f,'
-        .. '"chars_per_minute":%d,"current_cpm":%d,"peak_cpm":%d,"active_minutes":%.1f,'
+        .. '"chars_per_minute":%d,"current_cpm":%d,"peak_cpm":%d,"burst_cpm":%d,"active_minutes":%.1f,'
         .. '"new_words_count":%d,"new_words":[%s]}\n',
         stats.date, stats.created_at, stats.updated_at,
-        stats.chars, stats.chars_cjk, stats.words_en,
-        stats.commits, avg_len, cpm, stats.current_cpm, peak, min,
+        stats.chars, stats.chars_cjk, stats.chars_ascii,
+        stats.commits, avg_len, cpm, stats.current_cpm, peak, stats.burst_cpm, min,
         #stats.new_words, words_json(stats.new_words)
     )
 
@@ -309,39 +314,45 @@ local function on_commit(ctx)
     if stats.date ~= today then
         archive()
         stats = new_stats()
-        speed_window = {}
-        peak_window = {}
+        reset_buckets()
         last_commit_ts_ms = 0
         last_save_ts_ms = 0
         compose_start_ts_ms = 0
     end
 
     local now = tick_ms()
-    if last_commit_ts_ms > 0 and (now < last_commit_ts_ms or now - last_commit_ts_ms >= IDLE_RESET_MS) then
-        speed_window = {}
-        stats.current_cpm = 0
-    end
+    local now_sec = math.floor(now / 1000)
+    local long_idle = last_commit_ts_ms > 0 and
+        (now < last_commit_ts_ms or now - last_commit_ts_ms >= IDLE_RESET_MS)
 
-    local cjk, words_en = count_text(text)
-    local n = cjk + words_en
+    local cjk, ascii = count_text(text)
+    local n = cjk + ascii
 
     stats.chars = stats.chars + n
     stats.chars_cjk = stats.chars_cjk + cjk
-    stats.words_en = stats.words_en + words_en
+    stats.chars_ascii = stats.chars_ascii + ascii
     stats.commits = stats.commits + 1
 
     -- 精确计时：组合开始(首次按键) → 上屏，累加这段时间
+    -- 同时用这段时间算 burst_cpm（单次组合的瞬时速度）
     if compose_start_ts_ms > 0 then
         local compose_time = now - compose_start_ts_ms
-        if compose_time > 0 and compose_time < 120000 then
+        if compose_time > 0 and compose_time < BURST_MAX_MS then
             stats.active_ms = stats.active_ms + compose_time
+            if not long_idle and n > 0 then
+                local burst_ms = math.max(compose_time, BURST_MIN_MS)
+                local burst = math.floor(n * 60000 / burst_ms)
+                if burst > stats.burst_cpm then
+                    stats.burst_cpm = burst
+                end
+            end
         end
         compose_start_ts_ms = 0
     end
     last_commit_ts_ms = now
 
-    update_current_speed(now, n)
-    update_peak(now, n)
+    deposit(now_sec, n)
+    update_speeds(now_sec)
 
     -- 1 秒防抖：距上次写入超过 1 秒才落盘
     if now - last_save_ts_ms >= 1000 then
@@ -353,6 +364,7 @@ end
 function M.init(env)
     data_dir = rime_api.get_user_data_dir()
     M.page_size = env.engine.schema.page_size or 5
+    reset_buckets()
     stats = load_today() or new_stats()
     if stats and stats.updated_at > 0 and now_ms() - stats.updated_at >= IDLE_RESET_MS then
         stats.current_cpm = 0
@@ -365,13 +377,10 @@ function M.init(env)
     -- 监听上下文变化，检测组合开始（首次按键）
     env.update_conn = env.engine.context.update_notifier:connect(function(ctx)
         if not ctx.composition:empty() then
-            -- 正在组合中，如果还没记录开始时间就记录
             if compose_start_ts_ms == 0 then
                 compose_start_ts_ms = tick_ms()
             end
         else
-            -- 组合已清空（Esc 放弃或上屏后清空）
-            -- 上屏的情况已在 on_commit 中处理，这里只重置残留状态
             compose_start_ts_ms = 0
         end
     end)

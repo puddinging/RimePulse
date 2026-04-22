@@ -23,9 +23,9 @@ struct TodayStatsView: View {
                     Text("·")
                         .foregroundStyle(.tertiary)
                     CategoryLabel(
-                        color: MetricColors.wordsEn,
+                        color: MetricColors.charsAscii,
                         title: "英文",
-                        value: compactNumber(stats.wordsEn)
+                        value: compactNumber(stats.charsAscii)
                     )
                 }
                 .font(.system(size: 10))
@@ -38,6 +38,7 @@ struct TodayStatsView: View {
             SpeedMetricCard(
                 current: stats.liveCurrentCpm,
                 peak: stats.peakCpm,
+                burst: stats.burstCpm,
                 tint: MetricColors.charsPerMinute
             )
             HStack(spacing: 6) {
@@ -77,6 +78,7 @@ private struct CategoryLabel: View {
 private struct SpeedMetricCard: View {
     let current: Int
     let peak: Int
+    let burst: Int
     let tint: Color
 
     var body: some View {
@@ -85,23 +87,31 @@ private struct SpeedMetricCard: View {
                 Text("\(current)")
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .monospacedDigit()
-                Text("/")
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.tertiary)
+                separator
                 Text("\(peak)")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                separator
+                Text("\(burst)")
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                 Text("字/分")
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
             }
-            Text("当前 / 峰值")
+            Text("当前 / 峰值 / 爆发")
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
         .background(tintedCardBackground(tint))
+    }
+
+    private var separator: some View {
+        Text("/")
+            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .foregroundStyle(.tertiary)
     }
 }
 

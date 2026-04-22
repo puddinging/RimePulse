@@ -11,7 +11,7 @@ enum MetricColors {
 
     static var totalChars: Color { .primary }
     static var charsCjk: Color { emerald }
-    static var wordsEn: Color { violet }
+    static var charsAscii: Color { violet }
     static var charsPerMinute: Color { sky }
     static var activeMinutes: Color { rose }
     static var commits: Color { amber }

@@ -18,7 +18,7 @@ enum TimeRange: String, CaseIterable, Identifiable, Sendable {
 enum TrendMetric: String, Hashable, CaseIterable, Identifiable, Sendable {
     case totalChars
     case charsCjk
-    case wordsEn
+    case charsAscii
     case charsPerMinute
     case activeMinutes
     case commits
@@ -27,19 +27,19 @@ enum TrendMetric: String, Hashable, CaseIterable, Identifiable, Sendable {
 
     /// 主图表 tab 位集合（不含 activeMinutes — 时长用 sparkline 展示即可）
     static let mainTabs: [TrendMetric] = [
-        .totalChars, .charsCjk, .wordsEn, .charsPerMinute, .commits
+        .totalChars, .charsCjk, .charsAscii, .charsPerMinute, .commits
     ]
 
     /// Sparkline 行集合（不含 totalChars — 是所有分量之和）
     static let sparkRows: [TrendMetric] = [
-        .charsCjk, .wordsEn, .charsPerMinute, .activeMinutes, .commits
+        .charsCjk, .charsAscii, .charsPerMinute, .activeMinutes, .commits
     ]
 
     var title: String {
         switch self {
         case .totalChars:     return "字数"
         case .charsCjk:       return "中文"
-        case .wordsEn:        return "英文"
+        case .charsAscii:     return "英文"
         case .charsPerMinute: return "速度"
         case .activeMinutes:  return "时长"
         case .commits:        return "提交"
@@ -48,8 +48,7 @@ enum TrendMetric: String, Hashable, CaseIterable, Identifiable, Sendable {
 
     var unit: String {
         switch self {
-        case .totalChars, .charsCjk: return "字"
-        case .wordsEn:        return "词"
+        case .totalChars, .charsCjk, .charsAscii: return "字"
         case .charsPerMinute: return "字/分"
         case .activeMinutes:  return "分钟"
         case .commits:        return "次"
@@ -60,7 +59,7 @@ enum TrendMetric: String, Hashable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .totalChars:     return .primary
         case .charsCjk:       return MetricColors.charsCjk
-        case .wordsEn:        return MetricColors.wordsEn
+        case .charsAscii:     return MetricColors.charsAscii
         case .charsPerMinute: return MetricColors.charsPerMinute
         case .activeMinutes:  return MetricColors.activeMinutes
         case .commits:        return MetricColors.commits
@@ -71,7 +70,7 @@ enum TrendMetric: String, Hashable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .totalChars:     return Double(r.chars)
         case .charsCjk:       return Double(r.charsCjk)
-        case .wordsEn:        return Double(r.wordsEn)
+        case .charsAscii:     return Double(r.charsAscii)
         case .charsPerMinute: return Double(r.charsPerMinute)
         case .activeMinutes:  return r.activeMinutes
         case .commits:        return Double(r.commits)
@@ -95,8 +94,8 @@ enum TrendMetric: String, Hashable, CaseIterable, Identifiable, Sendable {
             return compactNumber(records.reduce(0) { $0 + $1.chars })
         case .charsCjk:
             return compactNumber(records.reduce(0) { $0 + $1.charsCjk })
-        case .wordsEn:
-            return compactNumber(records.reduce(0) { $0 + $1.wordsEn })
+        case .charsAscii:
+            return compactNumber(records.reduce(0) { $0 + $1.charsAscii })
         case .charsPerMinute:
             let xs = records.map(\.charsPerMinute).filter { $0 > 0 }
             guard !xs.isEmpty else { return "0" }
@@ -116,7 +115,7 @@ struct AggregatedRecord: Hashable, Sendable {
     let date: Date
     let chars: Int
     let charsCjk: Int
-    let wordsEn: Int
+    let charsAscii: Int
     let activeMinutes: Double
     let commits: Int
     let charsPerMinute: Int
@@ -132,14 +131,14 @@ struct AggregatedCache: Sendable {
 struct AggregateAccumulator {
     var chars: Int = 0
     var charsCjk: Int = 0
-    var wordsEn: Int = 0
+    var charsAscii: Int = 0
     var activeMinutes: Double = 0
     var commits: Int = 0
 
     mutating func add(_ stats: TypingStats) {
         chars += stats.chars
         charsCjk += stats.charsCjk
-        wordsEn += stats.wordsEn
+        charsAscii += stats.charsAscii
         activeMinutes += stats.activeMinutes
         commits += stats.commits
     }
@@ -150,7 +149,7 @@ struct AggregateAccumulator {
             date: date,
             chars: chars,
             charsCjk: charsCjk,
-            wordsEn: wordsEn,
+            charsAscii: charsAscii,
             activeMinutes: activeMinutes,
             commits: commits,
             charsPerMinute: cpm
