@@ -265,25 +265,6 @@ struct TotalStatsView: View {
                 .cornerRadius(2)
             }
 
-            if let peakIndex, hoverDate == nil {
-                let peak = aggregatedRecords[peakIndex]
-                RuleMark(x: .value("peak", peak.date, unit: .day))
-                    .foregroundStyle(selectedMetric.color.opacity(0.30))
-                    .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [2, 2]))
-            }
-
-            if let hovered = hoveredRecord {
-                RuleMark(x: .value("hover", hovered.date, unit: .day))
-                    .foregroundStyle(Color.primary.opacity(0.35))
-                    .lineStyle(StrokeStyle(lineWidth: 0.5))
-                    .annotation(
-                        position: .top,
-                        spacing: 4,
-                        overflowResolution: .init(x: .fit(to: .chart), y: .disabled)
-                    ) {
-                        hoverBubble(for: hovered)
-                    }
-            }
         }
         .chartXAxis {
             AxisMarks(values: xAxisDates) { value in
@@ -315,25 +296,7 @@ struct TotalStatsView: View {
         return Color.primary.opacity(0.18)
     }
 
-    private func hoverBubble(for record: AggregatedRecord) -> some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(selectedMetric.color)
-                .frame(width: 5, height: 5)
-            Text(selectedMetric.formattedValue(from: record))
-                .font(.system(size: 9.5, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.primary)
-            Text(selectedMetric.unit)
-                .font(.system(size: 8))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .glassEffect(.regular, in: Capsule())
-    }
-
-    private var xAxisDates: [Date] {
+private var xAxisDates: [Date] {
         let n = aggregatedRecords.count
         guard n > 0 else { return [] }
         if n == 1 { return [aggregatedRecords[0].date] }
